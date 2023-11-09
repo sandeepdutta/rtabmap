@@ -227,6 +227,10 @@ ENDIF()
 
 set(RTABMAP_QT_VERSION AUTO CACHE STRING "Force a specific Qt version.")
 set_property(CACHE RTABMAP_QT_VERSION PROPERTY STRINGS AUTO 4 5 6)
+find_package(Eigen3 REQUIRED)
+IF(Eigen3_FOUND)
+   MESSAGE(STATUS "Found Eigen3: ${Eigen3_INCLUDE_DIRS} ${Eigen3_LIBRARIES}")
+ENDIF(Eigen3_FOUND)
 
 FIND_PACKAGE(OpenCV REQUIRED QUIET COMPONENTS core calib3d imgproc highgui stitching photo video videoio OPTIONAL_COMPONENTS aruco xfeatures2d nonfree gpu cudafeatures2d)
 
@@ -588,7 +592,9 @@ IF(WITH_ZED)
        ## look for CUDA
        find_package(CUDA)
        IF(CUDA_FOUND)
-        MESSAGE(STATUS "Found CUDA: ${CUDA_INCLUDE_DIRS}")
+        MESSAGE(STATUS "Found CUDA: ${CUDA_INCLUDE_DIRS} ${CUDA_INCLUDE_DIRS}/../lib")
+        link_directories("${CUDA_INCLUDE_DIRS}/../lib")
+        link_libraries("nvToolsExt")
        ELSE()
         MESSAGE(FATAL_ERROR "CUDA is required to build with Zed sdk! Set -DWITH_ZED=OFF if you don't have CUDA.")
        ENDIF()
