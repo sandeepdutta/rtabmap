@@ -3149,20 +3149,12 @@ bool Rtabmap::process(
 					if(iterPose != _optimizedPoses.end() && poses.find(iterPose->first) == poses.end())
 					{
 						poses.insert(*iterPose);
-						if(iterPose->first > 0)
-						{
-							// make the poses in the map fixed
-							constraints.insert(std::make_pair(iterPose->first, Link(iterPose->first, iterPose->first, Link::kPosePrior, iterPose->second, priorInfMat)));
-							UDEBUG("Constraint %d->%d (type=%s)", iterPose->first, iterPose->first, Link::typeName(Link::kPosePrior).c_str());
-						}
+						// make the poses in the map fixed
+						constraints.insert(std::make_pair(iterPose->first, Link(iterPose->first, iterPose->first, Link::kPosePrior, iterPose->second, priorInfMat)));
+						UDEBUG("Constraint %d->%d: %s (type=%s, var=%f)", iterPose->first, iterPose->first, iterPose->second.prettyPrint().c_str(), Link::typeName(Link::kPosePrior).c_str(), 1./_localizationPriorInf);
 					}
-					UDEBUG("Constraint %d->%d (type=%s, var = %f %f)", iter->second.from(), iter->second.to(), iter->second.typeName().c_str(), iter->second.transVariance(), iter->second.rotVariance());
+					UDEBUG("Constraint %d->%d: %s (type=%s, var = %f %f)", iter->second.from(), iter->second.to(), iter->second.transform().prettyPrint().c_str(), iter->second.typeName().c_str(), iter->second.transVariance(), iter->second.rotVariance());
 				}
-				for(std::map<int, Transform>::iterator iter=poses.begin(); iter!=poses.end(); ++iter)
-				{
-					UDEBUG("Pose %d %s", iter->first, iter->second.prettyPrint().c_str());
-				}
-
 
 				std::map<int, Transform> posesOut;
 				std::multimap<int, Link> edgeConstraintsOut;
@@ -3170,14 +3162,20 @@ bool Rtabmap::process(
 				UDEBUG("priorsIgnored was %s", priorsIgnored?"true":"false");
 				_graphOptimizer->setPriorsIgnored(false); //temporary set false to use priors above to fix nodes of the map
 				// If slam2d: get connected graph while keeping original roll,pitch,z values.
-				_graphOptimizer->getConnectedGraph(signature->id(), poses, constraints, posesOut, edgeConstraintsOut, !_graphOptimizer->isSlam2d());
+				_graphOptimizer->getConnectedGraph(signature->id(), poses, constraints, posesOut, edgeConstraintsOut);
+				if(ULogger::level() == ULogger::kDebug)
+				{
+					for(std::map<int, Transform>::iterator iter=posesOut.begin(); iter!=posesOut.end(); ++iter)
+					{
+						UDEBUG("Pose %d %s", iter->first, iter->second.prettyPrint().c_str());
+					}
+				}
 				cv::Mat locOptCovariance;
 				std::map<int, Transform> optPoses;
-				if(poses.lower_bound(1) != poses.end() &&
-				   _odomCachePoses.lower_bound(1) != poses.end() &&
-				   poses.lower_bound(1)->first < _odomCachePoses.lower_bound(1)->first)
+				if(!posesOut.empty() &&
+				   posesOut.begin()->first < _odomCachePoses.begin()->first)
 				{
-					optPoses = _graphOptimizer->optimize(poses.lower_bound(1)->first, posesOut, edgeConstraintsOut, locOptCovariance);
+					optPoses = _graphOptimizer->optimize(posesOut.begin()->first, posesOut, edgeConstraintsOut, locOptCovariance);
 				}
 				else
 				{
@@ -3243,7 +3241,7 @@ bool Rtabmap::process(
 									_optimizationMaxError);
 							rejectLocalization = true;
 						}
-						else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+						else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 						{
 							UERROR("Huge optimization error detected!"
 									"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -3285,7 +3283,7 @@ bool Rtabmap::process(
 									_optimizationMaxError);
 							rejectLocalization = true;
 						}
-						else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+						else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 						{
 							UERROR("Huge optimization error detected!"
 									"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -3321,13 +3319,12 @@ bool Rtabmap::process(
 						UDEBUG("priorsIgnored was %s", priorsIgnored?"true":"false");
 						_graphOptimizer->setPriorsIgnored(false); //temporary set false to use priors above to fix nodes of the map
 						// If slam2d: get connected graph while keeping original roll,pitch,z values.
-						_graphOptimizer->getConnectedGraph(signature->id(), poses, constraints, posesOut, edgeConstraintsOut, !_graphOptimizer->isSlam2d());
+						_graphOptimizer->getConnectedGraph(signature->id(), poses, constraints, posesOut, edgeConstraintsOut);
 						optPoses.clear();
-						if(poses.lower_bound(1) != poses.end() &&
-						   _odomCachePoses.lower_bound(1) != poses.end() &&
-						   poses.lower_bound(1)->first < _odomCachePoses.lower_bound(1)->first)
+						if(!posesOut.empty() &&
+						   posesOut.begin()->first < _odomCachePoses.begin()->first)
 						{
-							optPoses = _graphOptimizer->optimize(poses.lower_bound(1)->first, posesOut, edgeConstraintsOut, locOptCovariance);
+							optPoses = _graphOptimizer->optimize(posesOut.begin()->first, posesOut, edgeConstraintsOut, locOptCovariance);
 						}
 						else
 						{
@@ -3393,7 +3390,7 @@ bool Rtabmap::process(
 											_optimizationMaxError);
 									rejectLocalization = true;
 								}
-								else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+								else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 								{
 									UERROR("Huge optimization error detected!"
 											"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -3435,7 +3432,7 @@ bool Rtabmap::process(
 											_optimizationMaxError);
 									rejectLocalization = true;
 								}
-								else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+								else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 								{
 									UERROR("Huge optimization error detected!"
 											"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -3729,7 +3726,7 @@ bool Rtabmap::process(
 							  _optimizationMaxError);
 						reject = true;
 					}
-					else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+					else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 					{
 						UERROR("Huge optimization error detected!"
 								"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -3766,7 +3763,7 @@ bool Rtabmap::process(
 							  _optimizationMaxError);
 						reject = true;
 					}
-					else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+					else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 					{
 						UERROR("Huge optimization error detected!"
 								"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -5675,7 +5672,7 @@ int Rtabmap::detectMoreLoopClosures(
 														Parameters::kRGBDOptimizeMaxError().c_str(),
 														_optimizationMaxError);
 										}
-										else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+										else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 										{
 											UERROR("Huge optimization error detected!"
 													"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -5707,7 +5704,7 @@ int Rtabmap::detectMoreLoopClosures(
 														Parameters::kRGBDOptimizeMaxError().c_str(),
 														_optimizationMaxError);
 										}
-										else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+										else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 										{
 											UERROR("Huge optimization error detected!"
 													"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -6054,7 +6051,7 @@ bool Rtabmap::addLink(const Link & link)
 							  Parameters::kRGBDOptimizeMaxError().c_str(),
 							  _optimizationMaxError);
 				}
-				else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+				else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 				{
 					UERROR("Huge optimization error detected!"
 							"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -6086,7 +6083,7 @@ bool Rtabmap::addLink(const Link & link)
 							  Parameters::kRGBDOptimizeMaxError().c_str(),
 							  _optimizationMaxError);
 				}
-				else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+				else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 				{
 					UERROR("Huge optimization error detected!"
 							"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -6249,7 +6246,7 @@ bool Rtabmap::addLink(const Link & link)
 							_optimizationMaxError);
 					rejectLocalization = true;
 				}
-				else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100)
+				else if(_optimizationMaxError == 0.0f && maxLinearErrorRatio>100 && !_graphOptimizer->isRobust())
 				{
 					UERROR("Huge optimization error detected!"
 							"Linear error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "
@@ -6285,7 +6282,7 @@ bool Rtabmap::addLink(const Link & link)
 							_optimizationMaxError);
 					rejectLocalization = true;
 				}
-				else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100)
+				else if(_optimizationMaxError == 0.0f && maxAngularErrorRatio>100 && !_graphOptimizer->isRobust())
 				{
 					UERROR("Huge optimization error detected!"
 							"Angular error ratio of %f (edge %d->%d, type=%d, abs error=%f m, stddev=%f). You may consider "

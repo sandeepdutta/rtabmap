@@ -13,6 +13,7 @@ modification, are permitted provided that the following conditions are met:
       names of its contributors may be used to endorse or promote products
       derived from this software without specific prior written permission.
 
+
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
 WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
@@ -817,6 +818,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->checkbox_rgbd_colorOnly, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->spinBox_source_imageDecimation, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->comboBox_source_histogramMethod, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->checkbox_source_feature_detection, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkbox_stereo_depthGenerated, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_stereo_exposureCompensation, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->pushButton_calibrate, SIGNAL(clicked()), this, SLOT(calibrate()));
@@ -1388,6 +1390,12 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->doubleSpinBox_OdomORBSLAMFps->setObjectName(Parameters::kOdomORBSLAMFps().c_str());
 	_ui->spinBox_OdomORBSLAMMaxFeatures->setObjectName(Parameters::kOdomORBSLAMMaxFeatures().c_str());
 	_ui->spinBox_OdomORBSLAMMapSize->setObjectName(Parameters::kOdomORBSLAMMapSize().c_str());
+	_ui->groupBox_OdomORBSLAMInertial->setObjectName(Parameters::kOdomORBSLAMInertial().c_str());
+	_ui->doubleSpinBox_ORBSLAMGyroNoise->setObjectName(Parameters::kOdomORBSLAMGyroNoise().c_str());
+	_ui->doubleSpinBox_ORBSLAMAccNoise->setObjectName(Parameters::kOdomORBSLAMAccNoise().c_str());
+	_ui->doubleSpinBox_ORBSLAMGyroWalk->setObjectName(Parameters::kOdomORBSLAMGyroWalk().c_str());
+	_ui->doubleSpinBox_ORBSLAMAccWalk->setObjectName(Parameters::kOdomORBSLAMAccWalk().c_str());
+	_ui->doubleSpinBox_ORBSLAMSamplingRate->setObjectName(Parameters::kOdomORBSLAMSamplingRate().c_str());
 
 	// Odometry Okvis
 	_ui->lineEdit_OdomOkvisPath->setObjectName(Parameters::kOdomOKVISConfigPath().c_str());
@@ -1606,6 +1614,7 @@ void PreferencesDialog::init(const QString & iniFilePath)
 	}
 
 	this->readSettings(iniFilePath);
+
 	this->writeSettings(getTmpIniFilePath());
 
 	_initialized = true;
@@ -2052,6 +2061,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->checkbox_rgbd_colorOnly->setChecked(false);
 		_ui->spinBox_source_imageDecimation->setValue(1);
 		_ui->comboBox_source_histogramMethod->setCurrentIndex(0);
+		_ui->checkbox_source_feature_detection->setChecked(false);
 		_ui->checkbox_stereo_depthGenerated->setChecked(false);
 		_ui->checkBox_stereo_exposureCompensation->setChecked(false);
 		_ui->openni2_autoWhiteBalance->setChecked(true);
@@ -2487,6 +2497,7 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	_ui->lineEdit_sourceLocalTransform->setText(settings.value("localTransform",_ui->lineEdit_sourceLocalTransform->text()).toString());
 	_ui->spinBox_source_imageDecimation->setValue(settings.value("imageDecimation",_ui->spinBox_source_imageDecimation->value()).toInt());
 	_ui->comboBox_source_histogramMethod->setCurrentIndex(settings.value("histogramMethod", _ui->comboBox_source_histogramMethod->currentIndex()).toInt());
+	_ui->checkbox_source_feature_detection->setChecked(settings.value("featureDetection", _ui->checkbox_source_feature_detection->isChecked()).toBool());
 	// Backward compatibility
 	if(_ui->lineEdit_sourceLocalTransform->text().compare("0 0 1 -1 0 0 0 -1 0") == 0)
 	{
@@ -3026,6 +3037,7 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.setValue("localTransform",  _ui->lineEdit_sourceLocalTransform->text());
 	settings.setValue("imageDecimation",  _ui->spinBox_source_imageDecimation->value());
 	settings.setValue("histogramMethod",  _ui->comboBox_source_histogramMethod->currentIndex());
+	settings.setValue("featureDetection",  _ui->checkbox_source_feature_detection->isChecked());
 
 	settings.beginGroup("rgbd");
 	settings.setValue("driver", 	       _ui->comboBox_cameraRGBD->currentIndex());
@@ -4860,6 +4872,8 @@ void PreferencesDialog::addParameters(const QGroupBox * box)
 
 void PreferencesDialog::updateBasicParameter()
 {
+	UDEBUG("");
+
 	// This method is used to update basic/advanced referred parameters, see above editingFinished()
 
 	// basic to advanced (advanced to basic must be done by connecting signal valueChanged())
@@ -4897,19 +4911,27 @@ void PreferencesDialog::updateBasicParameter()
 	}
 	else if(sender() == _ui->general_checkBox_activateRGBD)
 	{
+        _ui->general_checkBox_activateRGBD_2->blockSignals(true);
 		_ui->general_checkBox_activateRGBD_2->setChecked(_ui->general_checkBox_activateRGBD->isChecked());
+        _ui->general_checkBox_activateRGBD_2->blockSignals(false);
 	}
 	else if(sender() == _ui->general_checkBox_activateRGBD_2)
 	{
+        _ui->general_checkBox_activateRGBD->blockSignals(true);
 		_ui->general_checkBox_activateRGBD->setChecked(_ui->general_checkBox_activateRGBD_2->isChecked());
+        _ui->general_checkBox_activateRGBD->blockSignals(false);
 	}
 	else if(sender() == _ui->general_checkBox_SLAM_mode)
 	{
+        _ui->general_checkBox_SLAM_mode_2->blockSignals(true);
 		_ui->general_checkBox_SLAM_mode_2->setChecked(_ui->general_checkBox_SLAM_mode->isChecked());
+        _ui->general_checkBox_SLAM_mode_2->blockSignals(false);
 	}
 	else if(sender() == _ui->general_checkBox_SLAM_mode_2)
 	{
+        _ui->general_checkBox_SLAM_mode->blockSignals(true);
 		_ui->general_checkBox_SLAM_mode->setChecked(_ui->general_checkBox_SLAM_mode_2->isChecked());
+        _ui->general_checkBox_SLAM_mode->blockSignals(false);
 	}
 	else
 	{
@@ -6028,6 +6050,10 @@ int PreferencesDialog::getSourceHistogramMethod() const
 {
 	return _ui->comboBox_source_histogramMethod->currentIndex();
 }
+bool PreferencesDialog::isSourceFeatureDetection() const
+{
+	return _ui->checkbox_source_feature_detection->isChecked();
+}
 bool PreferencesDialog::isSourceStereoDepthGenerated() const
 {
 	return _ui->checkbox_stereo_depthGenerated->isChecked();
@@ -6093,7 +6119,7 @@ Camera * PreferencesDialog::createCamera(
 	if(odomOnly && !(driver == kSrcStereoRealSense2 || driver == kSrcStereoZed))
 	{
 		QMessageBox::warning(this, tr("Odometry Sensor"),
-				tr("Driver \%1 cannot support odometry only mode.").arg(driver), QMessageBox::Ok);
+				tr("Driver %1 cannot support odometry only mode.").arg(driver), QMessageBox::Ok);
 		return 0;
 	}
 
@@ -6833,6 +6859,10 @@ void PreferencesDialog::testOdometry()
 	cameraThread.setColorOnly(_ui->checkbox_rgbd_colorOnly->isChecked());
 	cameraThread.setImageDecimation(_ui->spinBox_source_imageDecimation->value());
 	cameraThread.setHistogramMethod(_ui->comboBox_source_histogramMethod->currentIndex());
+	if(_ui->checkbox_source_feature_detection->isChecked())
+	{
+		cameraThread.enableFeatureDetection(this->getAllParameters());
+	}
 	cameraThread.setStereoToDepth(_ui->checkbox_stereo_depthGenerated->isChecked());
 	cameraThread.setStereoExposureCompensation(_ui->checkBox_stereo_exposureCompensation->isChecked());
 	cameraThread.setScanParameters(
@@ -6905,6 +6935,10 @@ void PreferencesDialog::testCamera()
 		cameraThread.setColorOnly(_ui->checkbox_rgbd_colorOnly->isChecked());
 		cameraThread.setImageDecimation(_ui->spinBox_source_imageDecimation->value());
 		cameraThread.setHistogramMethod(_ui->comboBox_source_histogramMethod->currentIndex());
+		if(_ui->checkbox_source_feature_detection->isChecked())
+		{
+			cameraThread.enableFeatureDetection(this->getAllParameters());
+		}
 		cameraThread.setStereoToDepth(_ui->checkbox_stereo_depthGenerated->isChecked());
 		cameraThread.setStereoExposureCompensation(_ui->checkBox_stereo_exposureCompensation->isChecked());
 		cameraThread.setScanParameters(

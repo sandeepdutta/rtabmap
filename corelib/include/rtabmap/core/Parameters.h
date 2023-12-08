@@ -527,12 +527,19 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(OdomViso2, BucketHeight,              double, 50,  "Height of bucket.");
 
     // Odometry ORB_SLAM2
-    RTABMAP_PARAM_STR(OdomORBSLAM, VocPath,             "",    "Path to ORB vocabulary (*.txt).");
-    RTABMAP_PARAM(OdomORBSLAM, Bf,              double, 0.076, "Fake IR projector baseline (m) used only when stereo is not used.");
-    RTABMAP_PARAM(OdomORBSLAM, ThDepth,         double, 40.0,  "Close/Far threshold. Baseline times.");
-    RTABMAP_PARAM(OdomORBSLAM, Fps,             float,  0.0,   "Camera FPS.");
-    RTABMAP_PARAM(OdomORBSLAM, MaxFeatures,     int,    1000,  "Maximum ORB features extracted per frame.");
-    RTABMAP_PARAM(OdomORBSLAM, MapSize,         int,    3000,  "Maximum size of the feature map (0 means infinite).");
+    RTABMAP_PARAM_STR(OdomORBSLAM, VocPath,             "",       "Path to ORB vocabulary (*.txt).");
+    RTABMAP_PARAM(OdomORBSLAM, Bf,              double, 0.076,    "Fake IR projector baseline (m) used only when stereo is not used.");
+    RTABMAP_PARAM(OdomORBSLAM, ThDepth,         double, 40.0,     "Close/Far threshold. Baseline times.");
+    RTABMAP_PARAM(OdomORBSLAM, Fps,             float,  0.0,      "Camera FPS (0 to estimate from input data).");
+    RTABMAP_PARAM(OdomORBSLAM, MaxFeatures,     int,    1000,     "Maximum ORB features extracted per frame.");
+    RTABMAP_PARAM(OdomORBSLAM, MapSize,         int,    3000,     "Maximum size of the feature map (0 means infinite). Only supported with ORB_SLAM2.");
+    RTABMAP_PARAM(OdomORBSLAM, Inertial,        bool,   false,    "Enable IMU. Only supported with ORB_SLAM3.");
+    RTABMAP_PARAM(OdomORBSLAM, GyroNoise,       double, 0.01,     "IMU gyroscope \"white noise\".");
+    RTABMAP_PARAM(OdomORBSLAM, AccNoise,        double, 0.1,      "IMU accelerometer \"white noise\".");
+    RTABMAP_PARAM(OdomORBSLAM, GyroWalk,        double, 0.000001, "IMU gyroscope \"random walk\".");
+    RTABMAP_PARAM(OdomORBSLAM, AccWalk,         double, 0.0001,   "IMU accelerometer \"random walk\".");
+    RTABMAP_PARAM(OdomORBSLAM, SamplingRate,    double, 0,        "IMU sampling rate (0 to estimate from input data).");
+
 
     // Odometry OKVIS
     RTABMAP_PARAM_STR(OdomOKVIS, ConfigPath,     "",  "Path of OKVIS config file.");
@@ -634,9 +641,9 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(OdomOpenVINS, AccelerometerRandomWalk,   double, 0.001,  "[m/s^3/sqrt(Hz)] (accel bias diffusion)");
     RTABMAP_PARAM(OdomOpenVINS, GyroscopeNoiseDensity,     double, 0.001,  "[rad/s/sqrt(Hz)] (gyro \"white noise\")");
     RTABMAP_PARAM(OdomOpenVINS, GyroscopeRandomWalk,       double, 0.0001, "[rad/s^2/sqrt(Hz)] (gyro bias diffusion)");
-    RTABMAP_PARAM(OdomOpenVINS, UpMSCKFSigmaPx,            double, 2.0,    "Pixel noise for MSCKF features");
+    RTABMAP_PARAM(OdomOpenVINS, UpMSCKFSigmaPx,            double, 1.0,    "Pixel noise for MSCKF features");
     RTABMAP_PARAM(OdomOpenVINS, UpMSCKFChi2Multiplier,     double, 1.0,    "Chi2 multiplier for MSCKF features");
-    RTABMAP_PARAM(OdomOpenVINS, UpSLAMSigmaPx,             double, 2.0,    "Pixel noise for SLAM features");
+    RTABMAP_PARAM(OdomOpenVINS, UpSLAMSigmaPx,             double, 1.0,    "Pixel noise for SLAM features");
     RTABMAP_PARAM(OdomOpenVINS, UpSLAMChi2Multiplier,      double, 1.0,    "Chi2 multiplier for SLAM features");
 
     // Odometry Open3D
