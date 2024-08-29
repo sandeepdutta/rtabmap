@@ -2202,6 +2202,177 @@ void NMS(
     }
 }
 
+std::vector<int> SSC(
+	const std::vector<cv::KeyPoint> & keypoints, int maxKeypoints, float tolerance, int cols, int rows)
+{
+	// several temp expression variables to simplify solution equation
+	int exp1 = rows + cols + 2*maxKeypoints;
+	long long exp2 = ((long long)4*cols + (long long)4*maxKeypoints + (long long)4*rows*maxKeypoints + (long long)rows*rows + (long long)cols*cols - (long long)2*rows*cols + (long long)4*rows*cols*maxKeypoints);
+	double exp3 = sqrt(exp2);
+	double exp4 = maxKeypoints - 1;
+
+	double sol1 = -round((exp1 + exp3) / exp4); // first solution
+	double sol2 = -round((exp1 - exp3) / exp4); // second solution
+
+	// binary search range initialization with positive solution
+	int high = (sol1 > sol2) ? sol1 : sol2;
+	int low = floor(sqrt((double)keypoints.size() / maxKeypoints));
+	low = std::max(1, low);
+
+	int width;
+	int prevWidth = -1;
+
+	unsigned int Kmin = round(maxKeypoints - (maxKeypoints * tolerance));
+	unsigned int Kmax = round(maxKeypoints + (maxKeypoints * tolerance));
+
+	std::vector<int> ResultVec, result;
+	result.reserve(keypoints.size());
+
+	bool complete = false;
+	while(!complete)
+	{
+		width = low + (high - low) / 2;
+		if(width==prevWidth || low>high) // needed to reassure the same radius is not repeated again
+		{
+			ResultVec = result; // return the keypoints from the previous iteration
+			break;
+		}
+		result.clear();
+		double c = (double)width / 2.0; // initializing Grid
+		int numCellCols = floor(cols / c);
+		int numCellRows = floor(rows / c);
+		std::vector<std::vector<bool>> coveredVec(numCellRows+1, std::vector<bool>(numCellCols+1, false));
+
+		for(unsigned int i=0; i<keypoints.size(); ++i)
+		{
+			int row = floor(keypoints[i].pt.y / c); // get position of the cell current point is located at
+			int col = floor(keypoints[i].pt.x / c);
+			if(coveredVec[row][col] == false) // if the cell is not covered
+			{
+				result.push_back(i);
+				int rowMin = ((row - floor(width / c)) >= 0) ? (row - floor(width / c)) : 0; // get range which current radius is covering
+				int rowMax = ((row + floor(width / c)) <= numCellRows) ? (row + floor(width / c)) : numCellRows;
+				int colMin = ((col - floor(width / c)) >= 0) ? (col - floor(width / c)) : 0;
+				int colMax = ((col + floor(width / c)) <= numCellCols) ? (col + floor(width / c)) : numCellCols;
+				for(int rowToCov=rowMin; rowToCov<=rowMax; ++rowToCov)
+				{
+					for(int colToCov=colMin; colToCov<=colMax; ++colToCov)
+					{
+						if(!coveredVec[rowToCov][colToCov])
+							coveredVec[rowToCov][colToCov] = true; // cover cells within the square bounding box with width
+					}
+				}
+			}
+		}
+
+		if(result.size() >= Kmin && result.size() <= Kmax) // solution found
+		{
+			ResultVec = result;
+			complete = true;
+		}
+		else if(result.size() < Kmin)
+			high = width - 1; // update binary search range
+		else
+			low = width + 1;
+		prevWidth = width;
+	}
+	return ResultVec;
+}
+
+bool rotateImagesUpsideUpIfNecessary(
+	CameraModel & model,
+	cv::Mat & rgb,
+	cv::Mat & depth)
+{
+	float roll,pitch,yaw;
+	// remove optical rotation
+	Transform localTransform = model.localTransform()*CameraModel::opticalRotation().inverse();
+	localTransform.getEulerAngles(roll, pitch, yaw);
+	UDEBUG("roll=%f pitch=%f yaw=%f", roll, pitch, yaw);
+	if(fabs(pitch > M_PI/4))
+	{
+		// Return original because of ambiguity for what would be considered up...
+		UDEBUG("Ignoring image rotation as pitch(%f)>Pi/4", pitch);
+		return false;
+	}
+	if(roll<0)
+	{
+		roll+=2*M_PI;
+	}
+	if(roll >= M_PI/4 && roll < 3*M_PI/4)
+	{
+		UDEBUG("ROTATION_90 (roll=%f)", roll);
+		if(!rgb.empty())
+		{
+			cv::flip(rgb,rgb,1);
+			cv::transpose(rgb,rgb);
+		}
+		if(!depth.empty())
+		{
+			cv::flip(depth,depth,1);
+			cv::transpose(depth,depth);
+		}
+		cv::Size sizet(model.imageHeight(), model.imageWidth());
+		model = CameraModel(
+				model.fy(),
+				model.fx(),
+				model.cy(),
+				model.cx()>0?model.imageWidth()-model.cx():0,
+				model.localTransform()*rtabmap::Transform(0,-1,0,0, 1,0,0,0, 0,0,1,0));
+		model.setImageSize(sizet);
+	}
+	else if(roll >= 3*M_PI/4 && roll < 5*M_PI/4)
+	{
+		UDEBUG("ROTATION_180 (roll=%f)", roll);
+		if(!rgb.empty())
+		{
+			cv::flip(rgb,rgb,1);
+			cv::flip(rgb,rgb,0);
+		}
+		if(!depth.empty())
+		{
+			cv::flip(depth,depth,1);
+			cv::flip(depth,depth,0);
+		}
+		cv::Size sizet(model.imageWidth(), model.imageHeight());
+		model = CameraModel(
+				model.fx(),
+				model.fy(),
+				model.cx()>0?model.imageWidth()-model.cx():0,
+				model.cy()>0?model.imageHeight()-model.cy():0,
+				model.localTransform()*rtabmap::Transform(0,0,0,0,0,1,0));
+		model.setImageSize(sizet);
+	}
+	else if(roll >= 5*M_PI/4 && roll < 7*M_PI/4)
+	{
+		UDEBUG("ROTATION_270 (roll=%f)", roll);
+		if(!rgb.empty())
+		{
+			cv::transpose(rgb,rgb);
+			cv::flip(rgb,rgb,1);
+		}
+		if(!depth.empty())
+		{
+			cv::transpose(depth,depth);
+			cv::flip(depth,depth,1);
+		}
+		cv::Size sizet(model.imageHeight(), model.imageWidth());
+		model = CameraModel(
+				model.fy(),
+				model.fx(),
+				model.cy()>0?model.imageHeight()-model.cy():0,
+				model.cx(),
+				model.localTransform()*rtabmap::Transform(0,1,0,0, -1,0,0,0, 0,0,1,0));
+		model.setImageSize(sizet);
+	}
+	else
+	{
+		UDEBUG("ROTATION_0 (roll=%f)", roll);
+		return false;
+	}
+	return true;
+}
+
 }
 
 }

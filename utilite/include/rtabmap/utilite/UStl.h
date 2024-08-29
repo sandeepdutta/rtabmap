@@ -186,11 +186,9 @@ template<class K, class V>
 inline std::set<K> uKeysSet(const std::map<K, V> & m)
 {
 	std::set<K> s;
-	int i=0;
 	for(typename std::map<K, V>::const_iterator iter = m.begin(); iter!=m.end(); ++iter)
 	{
 		s.insert(s.end(), iter->first);
-		++i;
 	}
 	return s;
 }
@@ -809,6 +807,16 @@ inline int uCompareVersion(const std::string & version, int major, int minor=-1,
 		}
 	}
 	return -1;
+}
+
+inline std::string uPad(const std::string & title, int padding = 20)
+{
+	int emptySize = padding - (int)title.size();
+	if(emptySize>0)
+	{
+		return title + std::string(emptySize, ' ');
+	}
+	return title;
 }
 
 #endif /* USTL_H */

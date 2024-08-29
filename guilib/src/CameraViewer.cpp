@@ -25,12 +25,13 @@ ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <rtabmap/core/SensorEvent.h>
 #include "rtabmap/gui/CameraViewer.h"
 
-#include <rtabmap/core/CameraEvent.h>
 #include <rtabmap/core/util3d.h>
 #include <rtabmap/core/util2d.h>
 #include <rtabmap/core/util3d_filtering.h>
+#include <rtabmap/core/MarkerDetector.h>
 #include <rtabmap/gui/ImageView.h>
 #include <rtabmap/gui/CloudViewer.h>
 #include <rtabmap/utilite/UCv2Qt.h>
@@ -52,12 +53,14 @@ CameraViewer::CameraViewer(QWidget * parent, const ParametersMap & parameters) :
 	imageView_(new ImageView(this)),
 	cloudView_(new CloudViewer(this)),
 	processingImages_(false),
-	parameters_(parameters)
+	parameters_(parameters),
+	markerDetector_(0)
 {
 	qRegisterMetaType<rtabmap::SensorData>("rtabmap::SensorData");
 
 	imageView_->setImageDepthShown(true);
 	imageView_->setMinimumSize(320, 240);
+	imageView_->setVisible(false);
 	QHBoxLayout * layout = new QHBoxLayout();
 	layout->setContentsMargins(0,0,0,0);
 	layout->addWidget(imageView_,1);
@@ -78,6 +81,16 @@ CameraViewer::CameraViewer(QWidget * parent, const ParametersMap & parameters) :
 	showScanCheckbox_->setEnabled(false);
 	showScanCheckbox_->setChecked(true);
 
+	markerCheckbox_ = new QCheckBox("Detect markers", this);
+#ifdef HAVE_OPENCV_ARUCO
+	markerCheckbox_->setEnabled(true);
+	markerDetector_ = new MarkerDetector(parameters);
+#else
+	markerCheckbox_->setEnabled(false);
+	markerCheckbox_->setToolTip("Disabled: RTAB-Map is not built with OpenCV's aruco module.");
+#endif
+	markerCheckbox_->setChecked(false);
+
 	imageSizeLabel_ = new QLabel(this);
 
 	QDialogButtonBox * buttonBox = new QDialogButtonBox(this);
@@ -90,6 +103,7 @@ CameraViewer::CameraViewer(QWidget * parent, const ParametersMap & parameters) :
 	layout2->addWidget(decimationSpin_);
 	layout2->addWidget(showCloudCheckbox_);
 	layout2->addWidget(showScanCheckbox_);
+	layout2->addWidget(markerCheckbox_);
 	layout2->addWidget(imageSizeLabel_);
 	layout2->addStretch(1);
 	layout2->addWidget(buttonBox);
@@ -106,15 +120,45 @@ CameraViewer::CameraViewer(QWidget * parent, const ParametersMap & parameters) :
 CameraViewer::~CameraViewer()
 {
 	this->unregisterFromEventsManager();
+	delete markerDetector_;
+}
+
+void CameraViewer::setDecimation(int value)
+{
+	decimationSpin_->setValue(value);
 }
 
 void CameraViewer::showImage(const rtabmap::SensorData & data)
 {
 	processingImages_ = true;
 	QString sizes;
+	imageView_->setVisible(!data.imageRaw().empty() || !data.imageRaw().empty());
+	std::map<int, MarkerInfo> detections;
 	if(!data.imageRaw().empty())
 	{
-		imageView_->setImage(uCvMat2QImage(data.imageRaw()));
+		std::vector<CameraModel> models;
+		if(markerCheckbox_->isEnabled() && markerCheckbox_->isChecked())
+		{
+			models = data.cameraModels();
+			if(models.empty())
+			{
+				for(size_t i=0; i<data.stereoCameraModels().size(); ++i)
+				{
+					models.push_back(data.stereoCameraModels()[i].left());
+				}
+			}
+		}
+			
+		if(!models.empty() && models[0].isValidForProjection())
+		{
+			cv::Mat imageWithDetections;
+			detections = markerDetector_->detect(data.imageRaw(), models, data.depthRaw(), std::map<int, float>(), &imageWithDetections);
+			imageView_->setImage(uCvMat2QImage(imageWithDetections));
+		}
+		else
+		{
+			imageView_->setImage(uCvMat2QImage(data.imageRaw()));
+		}
 		sizes.append(QString("Color=%1x%2").arg(data.imageRaw().cols).arg(data.imageRaw().rows));
 	}
 	if(!data.depthOrRightRaw().empty())
@@ -138,6 +182,28 @@ void CameraViewer::showImage(const rtabmap::SensorData & data)
 			{
 				showCloudCheckbox_->setEnabled(true);
 				cloudView_->addCloud("cloud", util3d::cloudFromSensorData(data, decimationSpin_->value()!=0?fabs(decimationSpin_->value()):1, 0, 0, 0, parameters_));
+			}
+
+			// Add landmarks to 3D Map view
+#if PCL_VERSION_COMPARE(>=, 1, 7, 2)
+			cloudView_->removeAllCoordinates("landmark_");
+#endif
+			cloudView_->removeAllTexts();
+			if(!detections.empty())
+			{
+				for(std::map<int, MarkerInfo>::const_iterator iter=detections.begin(); iter!=detections.end(); ++iter)
+				{
+#if PCL_VERSION_COMPARE(>=, 1, 7, 2)
+					cloudView_->addOrUpdateCoordinate(uFormat("landmark_%d", iter->first), iter->second.pose(), iter->second.length(), false);
+#endif
+					std::string num = uNumber2Str(iter->first);
+					cloudView_->addOrUpdateText(
+							std::string("landmark_str_") + num,
+							num,
+							iter->second.pose(),
+							0.05,
+							Qt::yellow);
+				}
 			}
 		}
 	}
@@ -199,10 +265,10 @@ bool CameraViewer::handleEvent(UEvent * event)
 {
 	if(!pause_->isChecked())
 	{
-		if(event->getClassName().compare("CameraEvent") == 0)
+		if(event->getClassName().compare("SensorEvent") == 0)
 		{
-			CameraEvent * camEvent = (CameraEvent*)event;
-			if(camEvent->getCode() == CameraEvent::kCodeData)
+			SensorEvent * camEvent = (SensorEvent*)event;
+			if(camEvent->getCode() == SensorEvent::kCodeData)
 			{
 				if(camEvent->data().isValid())
 				{

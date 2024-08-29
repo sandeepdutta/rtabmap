@@ -86,7 +86,7 @@ Odometry * Odometry::create(Odometry::Type & type, const ParametersMap & paramet
 		break;
 	case Odometry::kTypeORBSLAM:
 #if defined(RTABMAP_ORB_SLAM) and RTABMAP_ORB_SLAM == 2
-		odometry = new OdometryORBSLAM(parameters);
+		odometry = new OdometryORBSLAM2(parameters);
 #else
 		odometry = new OdometryORBSLAM3(parameters);
 #endif
@@ -140,6 +140,7 @@ Odometry::Odometry(const rtabmap::ParametersMap & parameters) :
 		_alignWithGround(Parameters::defaultOdomAlignWithGround()),
 		_publishRAMUsage(Parameters::defaultRtabmapPublishRAMUsage()),
 		_imagesAlreadyRectified(Parameters::defaultRtabmapImagesAlreadyRectified()),
+		_deskewing(Parameters::defaultOdomDeskewing()),
 		_pose(Transform::getIdentity()),
 		_resetCurrentCount(0),
 		previousStamp_(0),
@@ -169,6 +170,7 @@ Odometry::Odometry(const rtabmap::ParametersMap & parameters) :
 	Parameters::parse(parameters, Parameters::kOdomAlignWithGround(), _alignWithGround);
 	Parameters::parse(parameters, Parameters::kRtabmapPublishRAMUsage(), _publishRAMUsage);
 	Parameters::parse(parameters, Parameters::kRtabmapImagesAlreadyRectified(), _imagesAlreadyRectified);
+	Parameters::parse(parameters, Parameters::kOdomDeskewing(), _deskewing);
 
 	if(_imageDecimation == 0)
 	{
@@ -335,6 +337,15 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 		}
 	}
 
+	if(!data.imageRaw().empty())
+	{
+		UDEBUG("Processing image data %dx%d: rgbd models=%ld, stereo models=%ld",
+			data.imageRaw().cols,
+			data.imageRaw().rows,
+			data.cameraModels().size(),
+			data.stereoCameraModels().size());
+	}
+
 
 	if(!_imagesAlreadyRectified && !this->canProcessRawImages() && !data.imageRaw().empty())
 	{
@@ -480,7 +491,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 	}
 
 	// Ground alignment
-	if(_pose.isIdentity() && _alignWithGround)
+	if(_pose.x() == 0 && _pose.y() == 0 && _pose.z() == 0 && this->framesProcessed() == 0 && _alignWithGround)
 	{
 		if(data.depthOrRightRaw().empty())
 		{
@@ -496,6 +507,11 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			if(indices->size())
 			{
 				cloud = util3d::voxelize(cloud, indices, 0.01);
+				if(!_pose.isIdentity())
+				{
+					// In case we are already aligned with gravity
+					cloud = util3d::transformPointCloud(cloud, _pose);
+				}
 				util3d::segmentObstaclesFromGround<pcl::PointXYZ>(cloud, ground, obstacles, 20, M_PI/4.0f, 0.02, 200, true);
 				if(ground->size())
 				{
@@ -524,11 +540,22 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 					//get rotation from z to n;
 					Eigen::Matrix3f R;
 					R = Eigen::Quaternionf().setFromTwoVectors(n,z);
-					Transform rotation(
-							R(0,0), R(0,1), R(0,2), 0,
-							R(1,0), R(1,1), R(1,2), 0,
-							R(2,0), R(2,1), R(2,2), coefficients.values.at(3));
-					this->reset(rotation);
+					if(_pose.r11() == 1.0f && _pose.r22() == 1.0f && _pose.r33() == 1.0f)
+					{
+						Transform rotation(
+								R(0,0), R(0,1), R(0,2), 0,
+								R(1,0), R(1,1), R(1,2), 0,
+								R(2,0), R(2,1), R(2,2), coefficients.values.at(3));
+						this->reset(rotation);
+					}
+					else
+					{
+						// Rotation is already set (e.g., from IMU/gravity), just update Z
+						UWARN("Rotation was already initialized, just offseting z to %f", coefficients.values.at(3));
+						Transform pose = _pose;
+						pose.z() = coefficients.values.at(3);
+						this->reset(pose);
+					}
 					success = true;
 				}
 			}
@@ -611,6 +638,75 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 	}
 
 	UTimer time;
+
+	// Deskewing lidar
+	if( _deskewing &&
+		!data.laserScanRaw().empty() &&
+		data.laserScanRaw().hasTime() &&
+		dt > 0 &&
+		!guess.isNull())
+	{
+		UDEBUG("Deskewing begin");
+		// Recompute velocity
+		float vx,vy,vz, vroll,vpitch,vyaw;
+		guess.getTranslationAndEulerAngles(vx,vy,vz, vroll,vpitch,vyaw);
+
+		// transform to velocity
+		vx /= dt;
+		vy /= dt;
+		vz /= dt;
+		vroll /= dt;
+		vpitch /= dt;
+		vyaw /= dt;
+
+		if(!imus_.empty())
+		{
+			float scanTime =
+				data.laserScanRaw().data().ptr<float>(0, data.laserScanRaw().size()-1)[data.laserScanRaw().getTimeOffset()] -
+				data.laserScanRaw().data().ptr<float>(0, 0)[data.laserScanRaw().getTimeOffset()];
+
+			// replace orientation velocity based on IMU (if available)
+			Transform imuFirstScan = Transform::getTransform(imus_,
+					data.stamp() +
+					data.laserScanRaw().data().ptr<float>(0, 0)[data.laserScanRaw().getTimeOffset()]);
+			Transform imuLastScan = Transform::getTransform(imus_,
+					data.stamp() +
+					data.laserScanRaw().data().ptr<float>(0, data.laserScanRaw().size()-1)[data.laserScanRaw().getTimeOffset()]);
+			if(!imuFirstScan.isNull() && !imuLastScan.isNull())
+			{
+				Transform orientation = imuFirstScan.inverse() * imuLastScan;
+				orientation.getEulerAngles(vroll, vpitch, vyaw);
+				if(_force3DoF)
+				{
+					vroll=0;
+					vpitch=0;
+					vyaw /= scanTime;
+				}
+				else
+				{
+					vroll /= scanTime;
+					vpitch /= scanTime;
+					vyaw /= scanTime;
+				}
+			}
+		}
+
+		Transform velocity(vx,vy,vz,vroll,vpitch,vyaw);
+		LaserScan scanDeskewed = util3d::deskew(data.laserScanRaw(), data.stamp(), velocity);
+		if(!scanDeskewed.isEmpty())
+		{
+			data.setLaserScan(scanDeskewed);
+		}
+		info->timeDeskewing = time.ticks();
+		UDEBUG("Deskewing end");
+	}
+	if(data.laserScanRaw().isOrganized())
+	{
+		// Laser scans should be dense passing this point
+		data.setLaserScan(data.laserScanRaw().densify());
+	}
+
+
 	Transform t;
 	if(_imageDecimation > 1 && !data.imageRaw().empty())
 	{
@@ -906,6 +1002,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 		{
 			UWARN("Odometry automatically reset to latest pose!");
 			this->reset(_pose);
+			_resetCurrentCount = _resetCountdown;
 			if(info)
 			{
 				*info = OdometryInfo();

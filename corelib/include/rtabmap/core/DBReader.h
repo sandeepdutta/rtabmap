@@ -82,14 +82,15 @@ public:
 	virtual bool isCalibrated() const;
 	virtual std::string getSerial() const;
 	virtual bool odomProvided() const {return !_odometryIgnored;}
+	virtual bool getPose(double stamp, Transform & pose, cv::Mat & covariance, double maxWaitTime = 0.06);
 
 	const DBDriver * driver() const {return _dbDriver;}
 
 protected:
-	virtual SensorData captureImage(CameraInfo * info = 0);
+	virtual SensorData captureImage(SensorCaptureInfo * info = 0);
 
 private:
-	SensorData getNextData(CameraInfo * info = 0);
+	SensorData getNextData(SensorCaptureInfo * info = 0);
 
 private:
 	std::list<std::string> _paths;

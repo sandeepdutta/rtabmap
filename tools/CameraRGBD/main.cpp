@@ -65,6 +65,7 @@ void showUsage()
 			"                                     13=MYNT EYE S\n"
 			"                                     14=ZED Open Capture\n"
 			"                                     15=depthai-core\n"
+			"                                     16=XVSDK     (SeerSense)\n"
 			"  Options:\n"
 			"      -rate #.#                      Input rate Hz (default 0=inf)\n"
 			"      -device #                      Device ID (number or string)\n"
@@ -334,6 +335,15 @@ int main(int argc, char * argv[])
 		}
 		camera = new rtabmap::CameraDepthAI(deviceId);
 	}
+	else if (driver == 16)
+	{
+		if (!rtabmap::CameraSeerSense::available())
+		{
+			UERROR("Not built with XVisio SDK support...");
+			exit(-1);
+		}
+		camera = new rtabmap::CameraSeerSense();
+	}
 	else
 	{
 		UFATAL("");
@@ -346,7 +356,7 @@ int main(int argc, char * argv[])
 		exit(1);
 	}
 
-	rtabmap::SensorData data = camera->takeImage();
+	rtabmap::SensorData data = camera->takeData();
 	if (data.imageRaw().empty())
 	{
 		printf("Cloud not get frame from the camera!\n");
@@ -522,7 +532,7 @@ int main(int argc, char * argv[])
 			printf("Saved frames %d to \"%s/left\" and \"%s/right\" directories\n", id, stereoSavePath.c_str(), stereoSavePath.c_str());
 		}
 		++id;
-		data = camera->takeImage();
+		data = camera->takeData();
 	}
 	printf("Closing...\n");
 	if(viewer)

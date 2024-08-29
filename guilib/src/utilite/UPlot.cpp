@@ -789,7 +789,7 @@ void UPlotCurve::draw(QPainter * painter, const QRect & limits)
 				{
 					QPointF intersection;
 					QLineF::IntersectType type;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 3)
 					type = lineItem->line().intersects(QLineF(limits.topLeft(), limits.bottomLeft()), &intersection);
 #else
 					type = lineItem->line().intersect(QLineF(limits.topLeft(), limits.bottomLeft()), &intersection);
@@ -800,7 +800,7 @@ void UPlotCurve::draw(QPainter * painter, const QRect & limits)
 					}
 					else
 					{
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 3)
 						type = lineItem->line().intersects(QLineF(limits.topLeft(), limits.topRight()), &intersection);
 #else
 						type = lineItem->line().intersect(QLineF(limits.topLeft(), limits.topRight()), &intersection);
@@ -811,7 +811,7 @@ void UPlotCurve::draw(QPainter * painter, const QRect & limits)
 						}
 						else
 						{
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 3)
 							type = lineItem->line().intersects(QLineF(limits.bottomLeft(), limits.bottomRight()), &intersection);
 #else
 							type = lineItem->line().intersect(QLineF(limits.bottomLeft(), limits.bottomRight()), &intersection);
@@ -822,7 +822,7 @@ void UPlotCurve::draw(QPainter * painter, const QRect & limits)
 							}
 							else
 							{
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 3)
 								type = lineItem->line().intersects(QLineF(limits.topRight(), limits.bottomRight()), &intersection);
 #else
 								type = lineItem->line().intersect(QLineF(limits.topRight(), limits.bottomRight()), &intersection);
@@ -1055,6 +1055,7 @@ UPlotCurveThreshold::UPlotCurveThreshold(const QString & name, qreal thesholdVal
 	UPlotCurve(name, parent),
 	_orientation(orientation)
 {
+	_threshold = thesholdValue;
 	if(_orientation == Qt::Horizontal)
 	{
 		this->addValue(0, thesholdValue);
@@ -1080,6 +1081,7 @@ void UPlotCurveThreshold::setThreshold(qreal threshold)
 	if(_items.size() == 3)
 	{
 		UPlotItem * item = 0;
+		_threshold = threshold;
 		if(_orientation == Qt::Horizontal)
 		{
 			item = (UPlotItem*)_items.at(0);
@@ -2193,10 +2195,10 @@ bool UPlot::addCurve(UPlotCurve * curve, bool ownershipTransferred)
 	return false;
 }
 
-QStringList UPlot::curveNames()
+QStringList UPlot::curveNames() const
 {
 	QStringList names;
-	for(QList<UPlotCurve*>::iterator iter = _curves.begin(); iter!=_curves.end(); ++iter)
+	for(QList<UPlotCurve*>::const_iterator iter = _curves.constBegin(); iter!=_curves.constEnd(); ++iter)
 	{
 		if(*iter)
 		{
@@ -2206,9 +2208,38 @@ QStringList UPlot::curveNames()
 	return names;
 }
 
-bool UPlot::contains(const QString & curveName)
+bool UPlot::isThreshold(const QString & curveName) const
 {
-	for(QList<UPlotCurve*>::iterator iter = _curves.begin(); iter!=_curves.end(); ++iter)
+	for(QList<UPlotCurve*>::const_iterator iter = _curves.constBegin(); iter!=_curves.constEnd(); ++iter)
+	{
+		if(*iter && (*iter)->name().compare(curveName) == 0)
+		{
+			return qobject_cast<UPlotCurveThreshold*>(*iter) != 0;
+		}
+	}
+	return false;
+}
+
+double UPlot::getThresholdValue(const QString & curveName) const
+{
+	for(QList<UPlotCurve*>::const_iterator iter = _curves.constBegin(); iter!=_curves.constEnd(); ++iter)
+	{
+		if(*iter && (*iter)->name().compare(curveName) == 0)
+		{
+			UPlotCurveThreshold* curve = qobject_cast<UPlotCurveThreshold*>(*iter);
+			if(curve)
+			{
+				return curve->getThreshold();
+			}
+		}
+	}
+	UERROR("Curve \"%s\" not found as theshold!", curveName.toStdString().c_str());
+	return 0;
+}
+
+bool UPlot::contains(const QString & curveName) const
+{
+	for(QList<UPlotCurve*>::const_iterator iter = _curves.constBegin(); iter!=_curves.constEnd(); ++iter)
 	{
 		if(*iter && (*iter)->name().compare(curveName) == 0)
 		{

@@ -2,6 +2,10 @@
 
 FROM ubuntu:22.04
 
+ARG TARGETPLATFORM
+ENV TARGETPLATFORM=${TARGETPLATFORM:-linux/amd64}
+RUN echo "I am building for $TARGETPLATFORM"
+
 # Install ROS2
 RUN apt update && \
     apt install software-properties-common -y && \
@@ -17,9 +21,21 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Install build dependencies
 RUN apt-get update && \
     apt upgrade -y && \
-    apt-get install -y git ros-humble-ros-base ros-dev-tools ros-humble-rtabmap-ros && \
-    apt-get remove -y ros-humble-rtabmap* && \
+    apt-get install -y git libtbb-dev ros-humble-ros-base ros-dev-tools && \
     apt-get clean && rm -rf /var/lib/apt/lists/
+
+RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then apt-get update && \
+    apt upgrade -y && \
+    apt-get install -y libfreenect-dev ros-humble-rtabmap-ros && \
+    apt-get remove -y ros-humble-rtabmap* && \
+    apt-get clean && rm -rf /var/lib/apt/lists/; fi
+
+# current issue that ros-humble-rtabmap-ros is not available on arm64
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update && \
+    apt upgrade -y && \
+    apt-get install -y libfreenect-dev ros-humble-rtabmap-launch && \
+    apt-get remove -y ros-humble-rtabmap* && \
+    apt-get clean && rm -rf /var/lib/apt/lists/; fi
 
 WORKDIR /root/
 
@@ -30,10 +46,6 @@ RUN apt-get update && apt-get install -y libpdal-dev && \
 # RealSense2
 RUN apt-get update && apt-get install -y ros-humble-librealsense2 && \
     apt-get clean && rm -rf /var/lib/apt/lists/
-
-ARG TARGETPLATFORM
-ENV TARGETPLATFORM=${TARGETPLATFORM:-linux/amd64}
-RUN echo "I am building for $TARGETPLATFORM"
 
 # libfreenect2 
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then echo "Installing libfreenect2..." && \
@@ -68,7 +80,7 @@ RUN git clone --branch 4.5.4 https://github.com/opencv/opencv.git && \
     cd opencv && \
     mkdir build && \
     cd build && \
-    cmake -DBUILD_opencv_python3=OFF -DBUILD_opencv_python_bindings_generator=OFF -DBUILD_opencv_python_tests=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF -DOPENCV_ENABLE_NONFREE=ON -DOPENCV_EXTRA_MODULES_PATH=/root/opencv_contrib/modules .. && \
+    cmake -DWITH_TBB=ON -DWITH_OPENMP=ON -DBUILD_opencv_python3=OFF -DBUILD_opencv_python_bindings_generator=OFF -DBUILD_opencv_python_tests=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF -DOPENCV_ENABLE_NONFREE=ON -DOPENCV_EXTRA_MODULES_PATH=/root/opencv_contrib/modules .. && \
     make -j$(nproc) && \
     make install && \
     cd ../.. && \
