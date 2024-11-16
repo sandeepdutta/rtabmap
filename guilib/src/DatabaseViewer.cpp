@@ -4440,15 +4440,18 @@ void DatabaseViewer::refineLinks()
 	std::multimap<int, Link> allLinks = updateLinksWithModifications(links_);
 	for(std::multimap<int, Link>::iterator iter=allLinks.begin(); iter!=allLinks.end(); ++iter)
 	{
-		int minId = iter->second.from()>iter->second.to()?iter->second.to():iter->second.from();
-		int maxId = iter->second.from()<iter->second.to()?iter->second.to():iter->second.from();
-		if(minNodeId == 0 || minNodeId > minId)
+		if(iter->second.type() < Link::kPosePrior)
 		{
-			minNodeId = minId;
-		}
-		if(maxNodeId == 0 || maxNodeId < maxId)
-		{
-			maxNodeId = maxId;
+			int minId = iter->second.from()>iter->second.to()?iter->second.to():iter->second.from();
+			int maxId = iter->second.from()<iter->second.to()?iter->second.to():iter->second.from();
+			if(minNodeId == 0 || minNodeId > minId)
+			{
+				minNodeId = minId;
+			}
+			if(maxNodeId == 0 || maxNodeId < maxId)
+			{
+				maxNodeId = maxId;
+			}
 		}
 	}
 	if(minNodeId > 0)
@@ -4472,7 +4475,8 @@ void DatabaseViewer::refineLinks()
 			linkRefiningDialog_->getIntraInterSessions(intra, inter);
 			for(std::multimap<int, Link>::iterator iter=allLinks.begin(); iter!=allLinks.end(); ++iter)
 			{
-				if(type==Link::kEnd || type == iter->second.type())
+				if(iter->second.type() < Link::kPosePrior && 
+				   (type==Link::kEnd || type == iter->second.type()))
 				{
 					int from = iter->second.from();
 					int to = iter->second.to();
@@ -4501,6 +4505,10 @@ void DatabaseViewer::refineLinks()
 				refineLinks(links);
 			}
 		}
+	}
+	else
+	{
+		UWARN("No links can be refined!");
 	}
 }
 void DatabaseViewer::refineLinks(const QList<Link> & links)
@@ -7157,14 +7165,14 @@ void DatabaseViewer::sliderIterationsValueChanged(int value)
 						for(int y=0; y<map.rows; ++y)
 						{
 							// check for first
-							if(!firstSet && map.at<char>(y, x) != -1)
+							if(!firstSet && map.at<signed char>(y, x) != -1)
 							{
 								xFirst = x;
 								firstSet = true;
 							}
 							// check for last
 							int opp = map.cols-(x+1);
-							if(!lastSet && map.at<char>(y, opp) != -1)
+							if(!lastSet && map.at<signed char>(y, opp) != -1)
 							{
 								xLast = opp;
 								lastSet = true;
@@ -7178,14 +7186,14 @@ void DatabaseViewer::sliderIterationsValueChanged(int value)
 						for(int x=0; x<map.cols; ++x)
 						{
 							// check for first
-							if(!firstSet && map.at<char>(y, x) != -1)
+							if(!firstSet && map.at<signed char>(y, x) != -1)
 							{
 								yFirst = y;
 								firstSet = true;
 							}
 							// check for last
 							int opp = map.rows-(y+1);
-							if(!lastSet && map.at<char>(map.rows-(y+1), x) != -1)
+							if(!lastSet && map.at<signed char>(map.rows-(y+1), x) != -1)
 							{
 								yLast = opp;
 								lastSet = true;
