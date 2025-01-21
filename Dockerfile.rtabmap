@@ -25,7 +25,7 @@ RUN set -x && \
     cd /rtabmap && \
     mkdir build && \
     cd build && \
-    CMAKE_PREFIX_PATH=/opt/ros/humble/lib/cmake cmake -DWITH_OPENGV=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo .. && \
+    CMAKE_PREFIX_PATH=/opt/ros/humble/lib/cmake cmake -DWITH_OPENGV=ON -DCMAKE_BUILD_TYPE=Release .. && \
     make -j 10 && \
     make install && \
     cd .. && \
