@@ -19,13 +19,33 @@ RUN git clone https://github.com/laurentkneip/opengv.git && \
     cd .. && \
     rm -rf opengv
 
+RUN git clone https://sandeepdutta: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@github.com/sandeepdutta/CudaSift.git && \
+    cd CudaSift && \
+    mkdir build && \
+    cd build && \
+    cmake -DVERBOSE=OFF .. && \
+    make -j 10 && \
+    make install && \   
+    cd ..
+
+# GTSAM
+RUN git clone https://github.com/borglab/gtsam.git && \
+    cd gtsam && \
+    git checkout 4.1 && \
+    mkdir build && \
+    cd build && \
+    cmake -DMETIS_SHARED=ON -DGTSAM_BUILD_STATIC_LIBRARY=OFF -DGTSAM_USE_SYSTEM_EIGEN=ON -DGTSAM_BUILD_TESTS=OFF -DGTSAM_BUILD_EXAMPLES_ALWAYS=OFF -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j10 && \
+    make install && \
+    cd ..
+
 RUN apt update && apt install -y ros-${ROS_DISTRO}-libg2o
 COPY . /rtabmap
 RUN set -x && \ 
     cd /rtabmap && \
     mkdir build && \
     cd build && \
-    CMAKE_PREFIX_PATH=/opt/ros/humble/lib/cmake cmake -DWITH_OPENGV=ON -DCMAKE_BUILD_TYPE=Release .. && \
+    CMAKE_PREFIX_PATH=/opt/ros/humble/lib/cmake cmake -DWITH_OPENGV=ON -DWITH_CUDASIFT=ON -DCMAKE_BUILD_TYPE=Release .. && \
     make -j 10 && \
     make install && \
     cd .. && \
