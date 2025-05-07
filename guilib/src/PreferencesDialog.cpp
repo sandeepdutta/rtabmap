@@ -1256,6 +1256,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->spinBox_maxOdomCacheSize->setObjectName(Parameters::kRGBDMaxOdomCacheSize().c_str());
 	_ui->checkbox_localizationSmoothing->setObjectName(Parameters::kRGBDLocalizationSmoothing().c_str());
 	_ui->doubleSpinBox_localizationPriorError->setObjectName(Parameters::kRGBDLocalizationPriorError().c_str());
+	_ui->checkbox_localizationSecondTryWithoutProximityLinks->setObjectName(Parameters::kRGBDLocalizationSecondTryWithoutProximityLinks().c_str());
 
 	// Registration
 	_ui->reg_repeatOnce->setObjectName(Parameters::kRegRepeatOnce().c_str());
@@ -1272,7 +1273,6 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->loopClosure_estimationType->setObjectName(Parameters::kVisEstimationType().c_str());
 	connect(_ui->loopClosure_estimationType, SIGNAL(currentIndexChanged(int)), _ui->stackedWidget_loopClosureEstimation, SLOT(setCurrentIndex(int)));
 	_ui->stackedWidget_loopClosureEstimation->setCurrentIndex(Parameters::defaultVisEstimationType());
-	_ui->loopClosure_forwardEst->setObjectName(Parameters::kVisForwardEstOnly().c_str());
 	_ui->loopClosure_bowEpipolarGeometryVar->setObjectName(Parameters::kVisEpipolarGeometryVar().c_str());
 	_ui->loopClosure_pnpReprojError->setObjectName(Parameters::kVisPnPReprojError().c_str());
 	_ui->loopClosure_pnpFlags->setObjectName(Parameters::kVisPnPFlags().c_str());
@@ -4810,8 +4810,6 @@ void PreferencesDialog::setParameter(const std::string & key, const std::string 
 	QWidget * obj = _ui->stackedWidget->findChild<QWidget*>(key.c_str());
 	if(obj)
 	{
-		uInsert(_parameters, ParametersPair(key, value));
-
 		QSpinBox * spin = qobject_cast<QSpinBox *>(obj);
 		QDoubleSpinBox * doubleSpin = qobject_cast<QDoubleSpinBox *>(obj);
 		QComboBox * combo = qobject_cast<QComboBox *>(obj);
@@ -4822,18 +4820,28 @@ void PreferencesDialog::setParameter(const std::string & key, const std::string 
 		bool ok;
 		if(spin)
 		{
-			spin->setValue(QString(value.c_str()).toInt(&ok));
+			int v = QString(value.c_str()).toInt(&ok);
 			if(!ok)
 			{
-				UERROR("Conversion failed from \"%s\" for parameter %s", value.c_str(), key.c_str());
+				UERROR("Conversion failed from \"%s\" for parameter %s. Original value (%d) is kept.", value.c_str(), key.c_str(), spin->value());
+			}
+			else
+			{
+				spin->setValue(v);
+				uInsert(_parameters, ParametersPair(key, value));
 			}
 		}
 		else if(doubleSpin)
 		{
-			doubleSpin->setValue(QString(value.c_str()).toDouble(&ok));
+			double v = QString(value.c_str()).toDouble(&ok);
 			if(!ok)
 			{
-				UERROR("Conversion failed from \"%s\" for parameter %s", value.c_str(), key.c_str());
+				UERROR("Conversion failed from \"%s\" for parameter %s. Original value (%f) is kept.", value.c_str(), key.c_str(), doubleSpin->value());
+			}
+			else
+			{
+				doubleSpin->setValue(v);
+				uInsert(_parameters, ParametersPair(key, value));
 			}
 		}
 		else if(combo)
@@ -4856,7 +4864,7 @@ void PreferencesDialog::setParameter(const std::string & key, const std::string 
 			int valueInt = QString(valueCpy.c_str()).toInt(&ok);
 			if(!ok)
 			{
-				UERROR("Conversion failed from \"%s\" for parameter %s", valueCpy.c_str(), key.c_str());
+				UERROR("Conversion failed from \"%s\" for parameter %s. Original value (%d) is kept.", valueCpy.c_str(), key.c_str(), combo->currentIndex());
 			}
 			else
 			{
@@ -4935,6 +4943,7 @@ void PreferencesDialog::setParameter(const std::string & key, const std::string 
 				if(ok)
 				{
 					combo->setCurrentIndex(valueInt);
+					uInsert(_parameters, ParametersPair(key, uNumber2Str(valueInt)));
 				}
 			}
 
@@ -4944,18 +4953,22 @@ void PreferencesDialog::setParameter(const std::string & key, const std::string 
 			_ui->checkBox_useOdomFeatures->blockSignals(true);
 			check->setChecked(uStr2Bool(value.c_str()));
 			_ui->checkBox_useOdomFeatures->blockSignals(false);
+			uInsert(_parameters, ParametersPair(key, uBool2Str(check->isChecked())));
 		}
 		else if(radio)
 		{
 			radio->setChecked(uStr2Bool(value.c_str()));
+			uInsert(_parameters, ParametersPair(key, uBool2Str(radio->isChecked())));
 		}
 		else if(lineEdit)
 		{
 			lineEdit->setText(value.c_str());
+			uInsert(_parameters, ParametersPair(key, value));
 		}
 		else if(groupBox)
 		{
 			groupBox->setChecked(uStr2Bool(value.c_str()));
+			uInsert(_parameters, ParametersPair(key, uBool2Str(groupBox->isChecked())));
 		}
 		else
 		{
@@ -7144,7 +7157,11 @@ Lidar * PreferencesDialog::createLidar()
 			// Connect to sensor
 
 			lidar = new LidarVLP16(
+#if BOOST_VERSION >= 108700  // Version 1.87.0
+					boost::asio::ip::make_address(uFormat("%ld.%ld.%ld.%ld",
+#else
 					boost::asio::ip::address_v4::from_string(uFormat("%ld.%ld.%ld.%ld",
+#endif
 							(size_t)_ui->spinBox_vlp16_ip1->value(),
 							(size_t)_ui->spinBox_vlp16_ip2->value(),
 							(size_t)_ui->spinBox_vlp16_ip3->value(),
