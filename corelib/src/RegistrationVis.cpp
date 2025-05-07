@@ -310,7 +310,7 @@ Transform RegistrationVis::computeTransformationImpl(
 			Transform guess, // (flowMaxLevel is set to 0 when guess is used)
 			RegistrationInfo & info) const
 {
-	UDEBUG("%s=%d", Parameters::kVisMinInliers().c_str(), _minInliers);
+	UWARN("%s=%d", Parameters::kVisMinInliers().c_str(), _minInliers);
 	UDEBUG("%s=%f", Parameters::kVisInlierDistance().c_str(), _inlierDistance);
 	UDEBUG("%s=%d", Parameters::kVisIterations().c_str(), _iterations);
 	UDEBUG("%s=%d", Parameters::kVisEstimationType().c_str(), _estimationType);
@@ -320,7 +320,7 @@ Transform RegistrationVis::computeTransformationImpl(
 	UDEBUG("%s=%d", Parameters::kVisPnPFlags().c_str(), _PnPFlags);
 	UDEBUG("%s=%f", Parameters::kVisPnPMaxVariance().c_str(), _PnPMaxVar);
 	UDEBUG("%s=%f", Parameters::kVisPnPSplitLinearCovComponents().c_str(), _PnPSplitLinearCovarianceComponents);
-	UDEBUG("%s=%d", Parameters::kVisCorType().c_str(), _correspondencesApproach);
+	UWARN("%s=%d", Parameters::kVisCorType().c_str(), _correspondencesApproach);
 	UDEBUG("%s=%d", Parameters::kVisCorFlowWinSize().c_str(), _flowWinSize);
 	UDEBUG("%s=%d", Parameters::kVisCorFlowIterations().c_str(), _flowIterations);
 	UDEBUG("%s=%f", Parameters::kVisCorFlowEps().c_str(), _flowEps);
