@@ -1908,9 +1908,8 @@ void MainWindow::processOdometry(const rtabmap::OdometryEvent & odom, bool dataI
 		{
 			if(!odomT.isNull())
 			{
-				rtabmap::Transform diff = odom.info().transformGroundTruth.inverse()*odomT;
-				_ui->statsToolBox->updateStat("Odometry/TG_error_lin/m", _preferencesDialog->isTimeUsedInFigures()?data->stamp()-_firstStamp:(float)data->id(), diff.getNorm(), _preferencesDialog->isCacheSavedInFigures());
-				_ui->statsToolBox->updateStat("Odometry/TG_error_ang/deg", _preferencesDialog->isTimeUsedInFigures()?data->stamp()-_firstStamp:(float)data->id(), diff.getAngle()*180.0/CV_PI, _preferencesDialog->isCacheSavedInFigures());
+				_ui->statsToolBox->updateStat("Odometry/TG_error_lin/m", _preferencesDialog->isTimeUsedInFigures()?data->stamp()-_firstStamp:(float)data->id(), odom.info().transformGroundTruth.getDistance(odomT), _preferencesDialog->isCacheSavedInFigures());
+				_ui->statsToolBox->updateStat("Odometry/TG_error_ang/deg", _preferencesDialog->isTimeUsedInFigures()?data->stamp()-_firstStamp:(float)data->id(), odom.info().transformGroundTruth.getAngle(odomT)*180.0/CV_PI, _preferencesDialog->isCacheSavedInFigures());
 			}
 
 			odom.info().transformGroundTruth.getTranslationAndEulerAngles(x,y,z,roll,pitch,yaw);
@@ -6623,6 +6622,8 @@ void MainWindow::postProcessing(
 			odomMaxInf = graph::getMaxOdomInf(_currentLinksMap);
 		}
 
+		std::shared_ptr<Registration> registration(Registration::create(parameters));
+
 		UASSERT(iterations>0);
 		for(int n=0; n<iterations && !_progressCanceled; ++n)
 		{
@@ -6703,7 +6704,6 @@ void MainWindow::postProcessing(
 										{
 											uInsert(parameters, ParametersPair(Parameters::kRegStrategy(), "2"));
 										}
-										Registration * registration = Registration::create(parameters);
 
 										if(reextractFeatures)
 										{
@@ -6735,7 +6735,6 @@ void MainWindow::postProcessing(
 													Parameters::kRGBDLoopClosureReextractFeatures().c_str());
 										}
 										transform = registration->computeTransformation(signatureFrom, signatureTo, Transform(), &info);
-										delete registration;
 										if(!transform.isNull())
 										{
 											//optimize the graph to see if the new constraint is globally valid
@@ -7023,7 +7022,13 @@ void MainWindow::postProcessing(
 		uInsert(parametersSBA, std::make_pair(Parameters::kOptimizerIterations(), uNumber2Str(sbaIterations)));
 		uInsert(parametersSBA, std::make_pair(Parameters::kg2oPixelVariance(), uNumber2Str(sbaVariance)));
 		Optimizer * sbaOptimizer = Optimizer::create(sbaType, parametersSBA);
-		std::map<int, Transform>  newPoses = sbaOptimizer->optimizeBA(optimizedPoses.begin()->first, optimizedPoses, linksOut, _cachedSignatures.toStdMap(), sbaRematchFeatures);
+		std::map<int, Transform>  newPoses = sbaOptimizer->optimizeBA(
+			optimizedPoses.begin()->first,
+			optimizedPoses,
+			linksOut,
+			_cachedSignatures.toStdMap(),
+			sbaRematchFeatures,
+			parametersSBA);
 		delete sbaOptimizer;
 		if(newPoses.size())
 		{
