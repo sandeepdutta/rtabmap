@@ -10,6 +10,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 WORKDIR /root/
 
+# issue: https://github.com/introlab/rtabmap/issues/1523
+RUN rm /etc/apt/sources.list.d/ros1-latest.list && \
+    apt-get update && apt-get install -y curl && \
+    sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
+    curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add - && \
+    apt-get clean && rm -rf /var/lib/apt/lists/
+
 # Install build dependencies
 RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
     apt-get update && \
@@ -29,7 +36,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm/v7" ]; then \
     export CFLAGS="-D_FILE_OFFSET_BITS=64" && \
     export CXXFLAGS="-D_FILE_OFFSET_BITS=64" && \
     ./bootstrap && \
-    make -j$(nproc) && \
+    make -j4 && \
     sudo make install && \
     cd .. && \
     cmake --version && \
@@ -52,7 +59,7 @@ RUN apt-get update && apt-get install -y ros-noetic-librealsense2 && \
 # Taken from https://github.com/microsoft/Azure-Kinect-Sensor-SDK/issues/1190#issuecomment-822772494
 # K4A binaries on 20.04 not released yet, we should take those from 18.04
 RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then echo "Installing k4a..." && \
-    apt-get update && apt-get install -y curl && \
+    apt-get update && \
     echo "Download libk4a1.3_1.3.0_amd64.deb..." && \
     curl -sSL https://packages.microsoft.com/ubuntu/18.04/prod/pool/main/libk/libk4a1.3/libk4a1.3_1.3.0_amd64.deb > /tmp/libk4a1.3_1.3.0_amd64.deb && \
     echo "Download libk4a1.3-dev_1.3.0_amd64.deb..." && \
@@ -84,7 +91,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then echo "Installing libfreenect2
     mkdir build && \
     cd build && \
     cmake .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r libfreenect2; fi
@@ -98,7 +105,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then echo "Installing zed-open-cap
     mkdir build && \
     cd build && \
     cmake .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r zed-open-capture; fi
@@ -117,7 +124,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then git clone https://github.com/
     mkdir build && \
     cd build && \
     cmake -DUSE_PYTHON=OFF -DOIIO_BUILD_TESTS=OFF -DOIIO_BUILD_TOOLS=OFF .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r oiio; fi
@@ -127,7 +134,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then git clone https://github.com/
     mkdir build && \
     cd build && \
     cmake .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r assimp; fi
@@ -140,7 +147,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then git clone https://github.com/
     git apply geogram_8b2ae61.patch && \
     ./configure.sh && \
     cd build/Linux64-gcc-dynamic-Release && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r geogram; fi
@@ -153,7 +160,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then git clone https://github.com/
     mkdir build && \
     cd build && \
     cmake -DALICEVISION_USE_CUDA=OFF -DALICEVISION_USE_APRILTAG=OFF -DALICEVISION_BUILD_SOFTWARE=OFF .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd && \
     rm -r AliceVision; fi
@@ -164,7 +171,7 @@ RUN git clone --branch 4.2.0 https://github.com/opencv/opencv.git && \
     mkdir build && \
     cd build && \
     cmake -DWITH_TBB=ON -DWITH_OPENMP=ON -DBUILD_opencv_python3=OFF -DBUILD_opencv_python_bindings_generator=OFF -DBUILD_opencv_python_tests=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_TESTS=OFF -DOPENCV_ENABLE_NONFREE=ON -DWITH_VTK=OFF -DOPENCV_EXTRA_MODULES_PATH=/root/opencv_contrib/modules .. && \
-    make -j$(nproc) && \
+    make -j4 && \
     make install && \
     cd ../.. && \
     rm -rf opencv opencv_contrib

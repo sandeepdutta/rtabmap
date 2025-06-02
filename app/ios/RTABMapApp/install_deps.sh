@@ -163,7 +163,7 @@ cd g2o
 if [ ! -e g2o_20241228_ios.patch ]
 then
 ls
-  curl -L https://gist.githubusercontent.com/matlabbe/b9ccfeae8f0744b275cab23510872680/raw/ce516b2ddaec60fd07fdf13482fb108cebef179f/g2o_20241228_ios.patch -o g2o_20241228_ios.patch
+  curl -L https://gist.githubusercontent.com/matlabbe/b9ccfeae8f0744b275cab23510872680/raw/6fe2ffe5ba8fba59171adbd2f38f9c3999c61f75/g2o_20241228_ios.patch -o g2o_20241228_ios.patch
   git apply g2o_20241228_ios.patch
 fi
 mkdir -p build
@@ -238,7 +238,7 @@ fi
 cd opencv
 mkdir -p build
 cd build
-cmake -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=$sysroot -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_INSTALL_PREFIX=$prefix -DOPENCV_EXTRA_MODULES_PATH=$prefix/opencv_contrib/modules -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DWITH_CUDA=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_stereo=OFF ..
+cmake -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=$sysroot -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_INSTALL_PREFIX=$prefix -DOPENCV_EXTRA_MODULES_PATH=$prefix/opencv_contrib/modules -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DWITH_CUDA=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_stereo=OFF -DOPENCV_ENABLE_NONFREE=ON ..
 cmake --build . --config Release
 cmake --build . --config Release --target install
 cd $pwd
@@ -288,6 +288,6 @@ cmake -DANDROID_PREBUILD=ON ../../../../..
 cmake --build . --config Release
 mkdir -p ios
 cd ios
-cmake -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=$sysroot -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_FIND_ROOT_PATH=$prefix -DWITH_QT=OFF -DBUILD_APP=OFF -DBUILD_TOOLS=OFF -DWITH_TORO=OFF -DWITH_VERTIGO=OFF -DWITH_MADGWICK=OFF -DWITH_ORB_OCTREE=OFF  -DBUILD_EXAMPLES=OFF -DWITH_LIBLAS=ON ../../../../../..
+cmake -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_SYSROOT=$sysroot -DBUILD_SHARED_LIBS=OFF -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DCMAKE_INSTALL_PREFIX=$prefix -DCMAKE_FIND_ROOT_PATH=$prefix -DWITH_QT=OFF -DBUILD_APP=OFF -DBUILD_TOOLS=OFF -DWITH_TORO=OFF -DWITH_VERTIGO=OFF -DWITH_MADGWICK=OFF -DWITH_ORB_OCTREE=ON  -DBUILD_EXAMPLES=OFF -DWITH_LIBLAS=ON ../../../../../..
 cmake --build . --config Release
 cmake --build . --config Release --target install
