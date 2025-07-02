@@ -11,7 +11,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /root/
 
 # issue: https://github.com/introlab/rtabmap/issues/1523
-RUN rm /etc/apt/sources.list.d/ros1-latest.list && \
+RUN rm /etc/apt/sources.list.d/ros1-latest.list || true && \
     apt-get update && apt-get install -y curl && \
     sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' && \
     curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | sudo apt-key add - && \
@@ -155,7 +155,7 @@ RUN if [ "$TARGETPLATFORM" = "linux/amd64" ]; then git clone https://github.com/
     cd AliceVision && \
     git checkout 0f6115b6af6183c524aa7fcf26141337c1cf3872 && \
     git submodule update -i && \
-    wget https://gist.githubusercontent.com/matlabbe/1df724465106c056ca4cc195c81d8cf0/raw/b3ed4cb8f9b270833a40d57d870a259eabfa4415/alicevision_0f6115b.patch && \
+    wget https://gist.githubusercontent.com/matlabbe/1df724465106c056ca4cc195c81d8cf0/raw/5e3437cf6229c8d534bbaee475ed9bcb92eb84a1/alicevision_0f6115b.patch && \
     git apply alicevision_0f6115b.patch && \
     mkdir build && \
     cd build && \
@@ -175,6 +175,20 @@ RUN git clone --branch 4.2.0 https://github.com/opencv/opencv.git && \
     make install && \
     cd ../.. && \
     rm -rf opencv opencv_contrib
+
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then apt-get update && apt install wget && apt-get clean && rm -rf /var/lib/apt/lists/; fi
+RUN git clone https://github.com/laurentkneip/opengv.git && \
+    cd opengv && \
+    git checkout 91f4b19c73450833a40e463ad3648aae80b3a7f3 && \
+    wget https://gist.githubusercontent.com/matlabbe/a412cf7c4627253874f81a00745a7fbb/raw/accc3acf465d1ffd0304a46b17741f62d4d354ef/opengv_disable_march_native.patch && \
+    git apply opengv_disable_march_native.patch && \
+    mkdir build && \
+    cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release .. && \
+    make -j4 && \
+    make install && \
+    cd && \
+    rm -r opengv
 
 RUN rm /bin/sh && ln -s /bin/bash /bin/sh
 
