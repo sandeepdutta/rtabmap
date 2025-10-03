@@ -226,7 +226,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 #ifndef RTABMAP_MSCKF_VIO
 	_ui->odom_strategy->setItemData(8, 0, Qt::UserRole - 1);
 #endif
-#ifndef RTABMAP_VINS
+#ifndef RTABMAP_VINS_FUSION
 	_ui->odom_strategy->setItemData(9, 0, Qt::UserRole - 1);
 #endif
 #ifndef RTABMAP_OPENVINS
@@ -918,6 +918,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->doubleSpinBox_odom_sensor_scale_factor, SIGNAL(valueChanged(double)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->doubleSpinBox_odom_sensor_wait_time, SIGNAL(valueChanged(double)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_odom_sensor_use_as_gt, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->checkbox_passthrough_source_odom, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 
 	connect(_ui->comboBox_imuFilter_strategy, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->comboBox_imuFilter_strategy, SIGNAL(currentIndexChanged(int)), _ui->stackedWidget_imuFilter, SLOT(setCurrentIndex(int)));
@@ -1005,6 +1006,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->lineEdit_rgbCompressionFormat->setObjectName(Parameters::kMemImageCompressionFormat().c_str());
 	_ui->lineEdit_depthCompressionFormat->setObjectName(Parameters::kMemDepthCompressionFormat().c_str());
 	_ui->general_checkBox_keepDescriptors->setObjectName(Parameters::kMemRawDescriptorsKept().c_str());
+	_ui->general_checkBox_loadVisualLocalFeaturesOnInit->setObjectName(Parameters::kMemLoadVisualLocalFeaturesOnInit().c_str());
 	_ui->general_checkBox_saveDepth16bits->setObjectName(Parameters::kMemSaveDepth16Format().c_str());
 	_ui->general_checkBox_compressionParallelized->setObjectName(Parameters::kMemCompressionParallelized().c_str());
 	_ui->general_checkBox_reduceGraph->setObjectName(Parameters::kMemReduceGraph().c_str());
@@ -1079,6 +1081,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->lineEdit_dictionaryPath->setObjectName(Parameters::kKpDictionaryPath().c_str());
 	connect(_ui->toolButton_dictionaryPath, SIGNAL(clicked()), this, SLOT(changeDictionaryPath()));
 	_ui->checkBox_kp_newWordsComparedTogether->setObjectName(Parameters::kKpNewWordsComparedTogether().c_str());
+	_ui->checkBox_kp_flannIndexSaved->setObjectName(Parameters::kKpFlannIndexSaved().c_str());
+	_ui->checkBox_kp_serializeWithChecksum->setObjectName(Parameters::kKpSerializeWithChecksum().c_str());
 	_ui->subpix_winSize_kp->setObjectName(Parameters::kKpSubPixWinSize().c_str());
 	_ui->subpix_iterations_kp->setObjectName(Parameters::kKpSubPixIterations().c_str());
 	_ui->subpix_eps_kp->setObjectName(Parameters::kKpSubPixEps().c_str());
@@ -1553,8 +1557,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->OdomMSCKFInitCovExTrans->setObjectName(Parameters::kOdomMSCKFInitCovExTrans().c_str());
 
 	// Odometry VINS
-	_ui->lineEdit_OdomVinsPath->setObjectName(Parameters::kOdomVINSConfigPath().c_str());
-	connect(_ui->toolButton_OdomVinsPath, SIGNAL(clicked()), this, SLOT(changeOdometryVINSConfigPath()));
+	_ui->lineEdit_OdomVinsFusionPath->setObjectName(Parameters::kOdomVINSFusionConfigPath().c_str());
+	connect(_ui->toolButton_OdomVinsFusionPath, SIGNAL(clicked()), this, SLOT(changeOdometryVINSFusionConfigPath()));
 
 	// Odometry OpenVINS
 	_ui->checkBox_OdomOpenVINSUseStereo->setObjectName(Parameters::kOdomOpenVINSUseStereo().c_str());
@@ -2306,6 +2310,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->doubleSpinBox_odom_sensor_scale_factor->setValue(1);
 		_ui->doubleSpinBox_odom_sensor_wait_time->setValue(100);
 		_ui->checkBox_odom_sensor_use_as_gt->setChecked(false);
+		_ui->checkbox_passthrough_source_odom->setChecked(false);
 
 		_ui->comboBox_imuFilter_strategy->setCurrentIndex(2);
 		_ui->doubleSpinBox_imuFilterMadgwickGain->setValue(Parameters::defaultImuFilterMadgwickGain());
@@ -2832,6 +2837,7 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	_ui->doubleSpinBox_odom_sensor_scale_factor->setValue(settings.value("odom_sensor_scale_factor", _ui->doubleSpinBox_odom_sensor_scale_factor->value()).toDouble());
 	_ui->doubleSpinBox_odom_sensor_wait_time->setValue(settings.value("odom_sensor_wait_time", _ui->doubleSpinBox_odom_sensor_wait_time->value()).toDouble());
 	_ui->checkBox_odom_sensor_use_as_gt->setChecked(settings.value("odom_sensor_odom_as_gt", _ui->checkBox_odom_sensor_use_as_gt->isChecked()).toBool());
+	_ui->checkbox_passthrough_source_odom->setChecked(settings.value("odom_sensor_as_guess", _ui->checkbox_passthrough_source_odom->isChecked()).toBool());
 	settings.endGroup(); // OdomSensor
 
 	settings.beginGroup("UsbCam");
@@ -3436,6 +3442,7 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.setValue("odom_sensor_scale_factor", _ui->doubleSpinBox_odom_sensor_scale_factor->value());
 	settings.setValue("odom_sensor_wait_time", _ui->doubleSpinBox_odom_sensor_wait_time->value());
 	settings.setValue("odom_sensor_odom_as_gt", _ui->checkBox_odom_sensor_use_as_gt->isChecked());
+	settings.setValue("odom_sensor_as_guess", _ui->checkbox_passthrough_source_odom->isChecked());
 	settings.endGroup(); // OdomSensor
 
 	settings.beginGroup("UsbCam");
@@ -3728,15 +3735,6 @@ bool PreferencesDialog::validateForm()
 				tr("Selected odometry local bundle adjustment optimization strategy (Ceres) is not available. RTAB-Map is not built "
 				   "with Ceres. Bundle adjustment is disabled."));
 		_ui->odom_f2m_bundleStrategy->setCurrentIndex(0);
-	}
-
-	// verify that Robust and Reject threshold are not set at the same time
-	if(_ui->graphOptimization_robust->isChecked() && _ui->graphOptimization_maxError->value()>0.0)
-	{
-		QMessageBox::warning(this, tr("Parameter warning"),
-				tr("Robust graph optimization and maximum optimization error threshold cannot be "
-				   "both used at the same time. Disabling robust optimization."));
-		_ui->graphOptimization_robust->setChecked(false);
 	}
 
 	//verify binary features and nearest neighbor
@@ -5473,7 +5471,7 @@ void PreferencesDialog::updateOdometryStackedIndex(int index)
 	_ui->groupBox_odomOKVIS->setVisible(index==6);
 	_ui->groupBox_odomLOAM->setVisible(index==7);
 	_ui->groupBox_odomMSCKF->setVisible(index==8);
-	_ui->groupBox_odomVINS->setVisible(index==9);
+	_ui->groupBox_odomVINSFusion->setVisible(index==9);
 	_ui->groupBox_odomOpenVINS->setVisible(index==10);
 	_ui->groupBox_odomOpen3D->setVisible(index==12);
 }
@@ -5564,20 +5562,20 @@ void PreferencesDialog::changeOdometryOKVISConfigPath()
 	}
 }
 
-void PreferencesDialog::changeOdometryVINSConfigPath()
+void PreferencesDialog::changeOdometryVINSFusionConfigPath()
 {
 	QString path;
-	if(_ui->lineEdit_OdomVinsPath->text().isEmpty())
+	if(_ui->lineEdit_OdomVinsFusionPath->text().isEmpty())
 	{
 		path = QFileDialog::getOpenFileName(this, tr("VINS-Fusion Config"), this->getWorkingDirectory(), tr("VINS-Fusion config (*.yaml)"));
 	}
 	else
 	{
-		path = QFileDialog::getOpenFileName(this, tr("VINS-Fusion Config"), _ui->lineEdit_OdomVinsPath->text(), tr("VINS-Fusion config (*.yaml)"));
+		path = QFileDialog::getOpenFileName(this, tr("VINS-Fusion Config"), _ui->lineEdit_OdomVinsFusionPath->text(), tr("VINS-Fusion config (*.yaml)"));
 	}
 	if(!path.isEmpty())
 	{
-		_ui->lineEdit_OdomVinsPath->setText(path);
+		_ui->lineEdit_OdomVinsFusionPath->setText(path);
 	}
 }
 
@@ -5783,7 +5781,7 @@ void PreferencesDialog::updateSourceGrpVisibility()
 
 	// Odom Sensor Group
 	_ui->frame_visual_odometry_sensor->setVisible(getOdomSourceDriver() != kSrcUndef); // Not Lidar None
-	_ui->groupBox_odom_sensor->setVisible(_ui->comboBox_sourceType->currentIndex() != 3); // Don't show when database is selected
+	_ui->comboBox_odom_sensor->setEnabled(_ui->comboBox_sourceType->currentIndex() != 3); // Don't enable when database is selected
 
 	// Lidar Sensor Group
 	_ui->comboBox_lidar_src->setEnabled(_ui->comboBox_sourceType->currentIndex() != 3); // Disable if database input
@@ -5916,6 +5914,10 @@ bool PreferencesDialog::isRelocalizationColorOdomCacheGraphView() const
 bool PreferencesDialog::isOdomDisabled() const
 {
 	return _ui->checkbox_odomDisabled->isChecked();
+}
+bool PreferencesDialog::isOdomAsGuessEnabled() const 
+{
+	return _ui->checkbox_passthrough_source_odom->isChecked();
 }
 bool PreferencesDialog::isOdomSensorAsGt() const
 {
