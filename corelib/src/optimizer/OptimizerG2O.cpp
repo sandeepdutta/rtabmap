@@ -90,14 +90,10 @@ typedef g2o::LinearSolverCSparse<SlamBlockSolver::PoseMatrixType> SlamLinearCSpa
 typedef g2o::LinearSolverCholmod<SlamBlockSolver::PoseMatrixType> SlamLinearCholmodSolver;
 #endif
 
-// We use G2O_SRC_DIR to know we are version after December 24 2020
+// We check if g2o/types/sba/sba_utils.h exists to know we use a version after December 24 2020
 // where VertexSBAPointXYZ has been renamed to VertexPointXYZ
 // (g2o: 0fcccb302787e70ff19f65e70fb103a1295b33a2)
-//
-// VCPKG commented G2O_SRC_DIR from their port so we cannot use
-// G2O_SRC_DIR on windows to deduce it, we then assume it is the
-// latest version without VertexSBAPointXYZ
-#if defined(G2O_SRC_DIR) or defined(WIN32)
+#ifdef RTABMAP_G2O_WITH_SBA_UTILS
 namespace g2o {
 typedef VertexPointXYZ VertexSBAPointXYZ;
 }
@@ -220,7 +216,7 @@ std::map<int, Transform> OptimizerG2O::optimize(
 	outputCovariance = cv::Mat::eye(6,6,CV_64FC1);
 	std::map<int, Transform> optimizedPoses;
 #ifdef RTABMAP_G2O
-	UDEBUG("Optimizing graph...");
+	UDEBUG("Optimizing graph... (rootId=%d)", rootId);
 
 #ifndef RTABMAP_VERTIGO
 	if(this->isRobust())
@@ -352,6 +348,9 @@ std::map<int, Transform> OptimizerG2O::optimize(
 				{
 					if(!priorsIgnored() && iter->second.type() == Link::kPosePrior)
 					{
+						if(rootId!=0) {
+							UDEBUG("Removed rootId=%d because there are priors.");
+						}
 						rootId = 0;
 						break;
 					}
