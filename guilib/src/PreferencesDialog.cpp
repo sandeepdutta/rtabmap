@@ -294,6 +294,10 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->comboBox_detector_strategy->setItemData(11, 0, Qt::UserRole - 1);
 	_ui->vis_feature_detector->setItemData(11, 0, Qt::UserRole - 1);
 #endif
+#if !defined(RTABMAP_TORCH) || !defined(RTABMAP_PYTHON)
+	_ui->comboBox_detector_strategy->setItemData(16, 0, Qt::UserRole - 1);
+	_ui->vis_feature_detector->setItemData(16, 0, Qt::UserRole - 1);
+#endif
 
 #ifndef RTABMAP_PYTHON
 	_ui->comboBox_detector_strategy->setItemData(15, 0, Qt::UserRole - 1);
@@ -1196,6 +1200,16 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->checkBox_sptorch_nms->setObjectName(Parameters::kSuperPointNMS().c_str());
 	_ui->spinBox_sptorch_minDistance->setObjectName(Parameters::kSuperPointNMSRadius().c_str());
 	_ui->checkBox_sptorch_cuda->setObjectName(Parameters::kSuperPointCuda().c_str());
+
+	// SuperPoint Rpautrat
+	_ui->lineEdit_sprpautrat_weights_path->setObjectName(Parameters::kSuperPointRpautratWeightsPath().c_str());
+	connect(_ui->toolButton_sprpautrat_weights_path, SIGNAL(clicked()), this, SLOT(changeSuperPointRpautratWeightsPath()));
+	_ui->lineEdit_sprpautrat_model_path->setObjectName(Parameters::kSuperPointRpautratModelPath().c_str());
+	connect(_ui->toolButton_sprpautrat_model_path, SIGNAL(clicked()), this, SLOT(changeSuperPointRpautratModelPath()));
+	_ui->doubleSpinBox_sprpautrat_threshold->setObjectName(Parameters::kSuperPointRpautratThreshold().c_str());
+	_ui->checkBox_sprpautrat_nms->setObjectName(Parameters::kSuperPointRpautratNMS().c_str());
+	_ui->spinBox_sprpautrat_minDistance->setObjectName(Parameters::kSuperPointRpautratNMSRadius().c_str());
+	_ui->checkBox_sprpautrat_cuda->setObjectName(Parameters::kSuperPointRpautratCuda().c_str());
 
 	// PyMatcher
 	_ui->lineEdit_pymatcher_path->setObjectName(Parameters::kPyMatcherPath().c_str());
@@ -5701,6 +5715,41 @@ void PreferencesDialog::changeSuperPointModelPath()
 	}
 }
 
+void PreferencesDialog::changeSuperPointRpautratWeightsPath()
+{
+	QString path;
+	if(_ui->lineEdit_sprpautrat_weights_path->text().isEmpty())
+	{
+		path = QFileDialog::getOpenFileName(this, tr("Select SuperPoint weights"), this->getWorkingDirectory(), tr("SuperPoint weights (*.pth)"));
+	}
+	else
+	{
+		path = QFileDialog::getOpenFileName(this, tr("Select SuperPoint weights"), _ui->lineEdit_sprpautrat_weights_path->text(), tr("SuperPoint weights (*.pth)"));
+	}
+	if(!path.isEmpty())
+	{
+		_ui->lineEdit_sprpautrat_weights_path->setText(path);
+	}
+}
+
+void PreferencesDialog::changeSuperPointRpautratModelPath()
+{
+	QString path;
+	if(_ui->lineEdit_sprpautrat_model_path->text().isEmpty())
+	{
+		path = QFileDialog::getOpenFileName(this, tr("Select SuperPoint Python Model"), this->getWorkingDirectory(), tr("SuperPoint Python Model (*.py)"));
+	}
+	else
+	{
+		path = QFileDialog::getOpenFileName(this, tr("Select SuperPoint Python Model"), _ui->lineEdit_sprpautrat_model_path->text(), tr("SuperPoint Python Model (*.py)"));
+	}
+	if(!path.isEmpty())
+	{
+		_ui->lineEdit_sprpautrat_model_path->setText(path);
+	}
+}
+
+
 void PreferencesDialog::changePyMatcherPath()
 {
 	QString path;
@@ -6712,7 +6761,8 @@ Camera * PreferencesDialog::createCamera(
 		camera->setInterIMUPublishing(
 			_ui->checkbox_publishInterIMU->isChecked(),
 			_ui->checkbox_publishInterIMU->isChecked() && getIMUFilteringStrategy()>0?
-					IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0);
+					IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0,
+					getIMUFilteringBaseFrameConversion());
 	}
 	else if (driver == kSrcRealSense)
 	{
@@ -6754,7 +6804,8 @@ Camera * PreferencesDialog::createCamera(
 			camera->setInterIMUPublishing(
 					_ui->checkbox_publishInterIMU->isChecked(),
 					_ui->checkbox_publishInterIMU->isChecked() && getIMUFilteringStrategy()>0?
-							IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0);
+							IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0,
+							getIMUFilteringBaseFrameConversion());
 			if(driver == kSrcStereoRealSense2)
 			{
 				((CameraRealSense2*)camera)->setImagesRectified((_ui->checkBox_stereo_rectify->isEnabled() && _ui->checkBox_stereo_rectify->isChecked()) && !useRawImages);
@@ -6972,7 +7023,8 @@ Camera * PreferencesDialog::createCamera(
 		camera->setInterIMUPublishing(
 				_ui->checkbox_publishInterIMU->isChecked(),
 				_ui->checkbox_publishInterIMU->isChecked() && getIMUFilteringStrategy()>0?
-						IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0);
+						IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0,
+						getIMUFilteringBaseFrameConversion());
 		((CameraStereoZed*)camera)->setRightGrayScale(_ui->checkBox_stereo_rightGrayScale->isChecked());
 	}
 	else if (driver == kSrcStereoZedOC)
@@ -7021,7 +7073,8 @@ Camera * PreferencesDialog::createCamera(
 		camera->setInterIMUPublishing(
 			_ui->checkbox_publishInterIMU->isChecked(),
 			_ui->checkbox_publishInterIMU->isChecked() && getIMUFilteringStrategy()>0?
-					IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0);
+					IMUFilter::create((IMUFilter::Type)(getIMUFilteringStrategy()-1), this->getAllParameters()):0,
+					getIMUFilteringBaseFrameConversion());
 	}
 	else if(driver == kSrcUsbDevice)
 	{

@@ -252,9 +252,9 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(Kp, NndrRatio,                float, 0.8,   "NNDR ratio (A matching pair is detected, if its distance is closer than X times the distance of the second nearest neighbor.)");
 #if CV_MAJOR_VERSION > 2 && !defined(HAVE_OPENCV_XFEATURES2D)
     // OpenCV>2 without xFeatures2D module doesn't have BRIEF
-    RTABMAP_PARAM(Kp, DetectorStrategy,         int, 8,       "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector");
+    RTABMAP_PARAM(Kp, DetectorStrategy,         int, 8,       "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector 16=SuperPoint-Rpautrat");
 #else
-    RTABMAP_PARAM(Kp, DetectorStrategy,         int, 6,       "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector");
+    RTABMAP_PARAM(Kp, DetectorStrategy,         int, 6,       "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector 16=SuperPoint-Rpautrat");
 #endif
     RTABMAP_PARAM(Kp, TfIdfLikelihoodUsed,      bool, true,   "Use of the td-idf strategy to compute the likelihood.");
     RTABMAP_PARAM(Kp, Parallelized,             bool, true,   "If the dictionary update and signature creation were parallelized.");
@@ -345,6 +345,13 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(SuperPoint, NMS,           bool,  true,  "If true, non-maximum suppression is applied to detected keypoints.");
     RTABMAP_PARAM(SuperPoint, NMSRadius,     int,  4,      uFormat("[%s=true] Minimum distance (pixels) between keypoints.", kSuperPointNMS().c_str()));
     RTABMAP_PARAM(SuperPoint, Cuda,          bool, true,   "Use Cuda device for Torch, otherwise CPU device is used by default.");
+
+    RTABMAP_PARAM_STR(SuperPointRpautrat, WeightsPath, "",           "[Required] SuperPoint weights file (*.pth).");
+    RTABMAP_PARAM_STR(SuperPointRpautrat, ModelPath, "",           "[Required] SuperPoint python model file (superpoint_pytorch.py).");
+    RTABMAP_PARAM(SuperPointRpautrat, Threshold,     float, 0.005, "Detector response threshold to accept keypoint.");
+    RTABMAP_PARAM(SuperPointRpautrat, NMS,           bool,  true,  "If true, non-maximum suppression is applied to detected keypoints.");
+    RTABMAP_PARAM(SuperPointRpautrat, NMSRadius,     int,  4,      uFormat("[%s=true] Minimum distance (pixels) between keypoints.", kSuperPointRpautratNMS().c_str()));
+    RTABMAP_PARAM(SuperPointRpautrat, Cuda,          bool, true,   "Use Cuda device for Torch, otherwise CPU device is used by default.");
 
     RTABMAP_PARAM_STR(PyDetector, Path,       "",           "Path to python script file (see available ones in rtabmap/corelib/src/python/*). See the header to see where the script should be copied.");
 	RTABMAP_PARAM(PyDetector, Cuda,           bool, true,   "Use cuda.");
@@ -456,7 +463,7 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(GTSAM, IncRelinearizeSkip,       int, 1, "Only relinearize any variables every X calls to ISAM2::update(). See GTSAM::ISAM2 doc for more info.");
 
     // Odometry
-    RTABMAP_PARAM(Odom, Strategy,               int, 0,       "0=Frame-to-Map (F2M) 1=Frame-to-Frame (F2F) 2=Fovis 3=viso2 4=DVO-SLAM 5=ORB_SLAM2 6=OKVIS 7=LOAM 8=MSCKF_VIO 9=VINS-Fusion 10=OpenVINS 11=FLOAM 12=Open3D 13=cuVSLAM");
+    RTABMAP_PARAM(Odom, Strategy,               int, 0,       "0=Frame-to-Map (F2M) 1=Frame-to-Frame (F2F) 2=Fovis 3=viso2 4=DVO-SLAM 5=ORB_SLAM 6=OKVIS 7=LOAM 8=MSCKF_VIO 9=VINS-Fusion 10=OpenVINS 11=FLOAM 12=Open3D 13=cuVSLAM");
     RTABMAP_PARAM(Odom, ResetCountdown,         int, 0,       "Automatically reset odometry after X consecutive images where odometry cannot be computed (a value of 0 disables auto-reset). When a reset occurs, odometry resumes from the last successfully computed pose with large covariance to trigger a new map. If external odometry is used, it will also be reset based on the motion estimated relative to the last computed pose but no large covariance will be received, so that a new map won't be triggered.");
     RTABMAP_PARAM(Odom, Holonomic,              bool, true,   "If the robot is holonomic (strafing commands can be issued). If not, y value will be estimated from x and yaw values (y=x*tan(yaw)).");
     RTABMAP_PARAM(Odom, FillInfoData,           bool, true,   "Fill info with data (inliers/outliers features).");
@@ -551,7 +558,7 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(OdomViso2, BucketWidth,               double, 50,  "Width of bucket.");
     RTABMAP_PARAM(OdomViso2, BucketHeight,              double, 50,  "Height of bucket.");
 
-    // Odometry ORB_SLAM2
+    // Odometry ORB_SLAM
     RTABMAP_PARAM_STR(OdomORBSLAM, VocPath,             "",       "Path to ORB vocabulary (*.txt).");
     RTABMAP_PARAM(OdomORBSLAM, Bf,              double, 0.076,    "Fake IR projector baseline (m) used only when stereo is not used.");
     RTABMAP_PARAM(OdomORBSLAM, ThDepth,         double, 40.0,     "Close/Far threshold. Baseline times.");
@@ -704,9 +711,9 @@ class RTABMAP_CORE_EXPORT Parameters
     RTABMAP_PARAM(Vis, Iterations,               int,    300,   "Maximum iterations to compute the transform.");
 #if CV_MAJOR_VERSION > 2 && !defined(HAVE_OPENCV_XFEATURES2D)
     // OpenCV>2 without xFeatures2D module doesn't have BRIEF
-    RTABMAP_PARAM(Vis, FeatureType, int, 8, "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector");
+    RTABMAP_PARAM(Vis, FeatureType, int, 8, "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector 16=SuperPoint-Rpautrat");
 #else
-    RTABMAP_PARAM(Vis, FeatureType, int, 6, "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector");
+    RTABMAP_PARAM(Vis, FeatureType, int, 6, "0=SURF 1=SIFT 2=ORB 3=FAST/FREAK 4=FAST/BRIEF 5=GFTT/FREAK 6=GFTT/BRIEF 7=BRISK 8=GFTT/ORB 9=KAZE 10=ORB-OCTREE 11=SuperPoint 12=SURF/FREAK 13=GFTT/DAISY 14=SURF/DAISY 15=PyDetector 16=SuperPoint-Rpautrat");
 #endif
     RTABMAP_PARAM(Vis, MaxFeatures,               int,   1000,  "0 no limits.");
     RTABMAP_PARAM(Vis, SSC,                       bool,  false, "If true, SSC (Suppression via Square Covering) is applied to limit keypoints.");
