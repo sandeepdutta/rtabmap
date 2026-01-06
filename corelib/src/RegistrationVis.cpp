@@ -333,11 +333,12 @@ Transform RegistrationVis::computeTransformationImpl(
 	UDEBUG("Feature Detector = %d", (int)_detectorFrom->getType());
 	UDEBUG("guess=%s", guess.prettyPrint().c_str());
 
-	UDEBUG("Input(%d): from=%d words, %d 3D words, %d words descriptors,  %d kpts, %d kpts3D, %d descriptors, image=%dx%d models=%d stereo=%d",
+	UDEBUG("Input(%d): from=%d words, %d 3D words, %d words descriptors, %d words kpts, %d kpts, %d kpts3D, %d descriptors, image=%dx%d models=%d stereo=%d",
 			fromSignature.id(),
 			(int)fromSignature.getWords().size(),
 			(int)fromSignature.getWords3().size(),
 			(int)fromSignature.getWordsDescriptors().rows,
+			(int)fromSignature.getWordsKpts().size(),
 			(int)fromSignature.sensorData().keypoints().size(),
 			(int)fromSignature.sensorData().keypoints3D().size(),
 			fromSignature.sensorData().descriptors().rows,
@@ -346,11 +347,12 @@ Transform RegistrationVis::computeTransformationImpl(
 			(int)fromSignature.sensorData().cameraModels().size(),
 			(int)fromSignature.sensorData().stereoCameraModels().size());
 
-	UDEBUG("Input(%d): to=%d words, %d 3D words, %d words descriptors, %d kpts, %d kpts3D, %d descriptors, image=%dx%d models=%d stereo=%d",
+	UDEBUG("Input(%d): to=%d words, %d 3D words, %d words descriptors, %d words kpts, %d kpts, %d kpts3D, %d descriptors, image=%dx%d models=%d stereo=%d",
 			toSignature.id(),
 			(int)toSignature.getWords().size(),
 			(int)toSignature.getWords3().size(),
 			(int)toSignature.getWordsDescriptors().rows,
+			(int)toSignature.getWordsKpts().size(),
 			(int)toSignature.sensorData().keypoints().size(),
 			(int)toSignature.sensorData().keypoints3D().size(),
 			toSignature.sensorData().descriptors().rows,
@@ -1670,14 +1672,10 @@ Transform RegistrationVis::computeTransformationImpl(
 					UINFO(msg.c_str());
 				}
 			}
-			else if(fromSignature.getWords().size() == 0)
+			else 
 			{
-				msg = uFormat("No enough features (%d)", (int)fromSignature.getWords().size());
-				UWARN(msg.c_str());
-			}
-			else
-			{
-				msg = uFormat("No camera model");
+				msg = uFormat("No enough features < %s=%d (from=%d to=%d)", 
+					Parameters::kVisMinInliers().c_str(), _minInliers, (int)fromSignature.getWords().size(), (int)toSignature.getWords().size());
 				UWARN(msg.c_str());
 			}
 		}

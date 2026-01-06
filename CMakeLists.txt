@@ -83,14 +83,6 @@ IF(MINGW)
     SET(CMAKE_SHARED_LINKER_FLAGS "-Wl,--enable-auto-import")
 ENDIF(MINGW)
 
-# GCC 4 required
-IF(UNIX OR MINGW)
-    EXEC_PROGRAM( gcc ARGS "-dumpversion" OUTPUT_VARIABLE GCC_VERSION )
-    IF(GCC_VERSION VERSION_LESS "4.0.0")
-        MESSAGE(FATAL_ERROR "GCC ${GCC_VERSION} found, but version 4.x.x minimum is required")
-    ENDIF(GCC_VERSION VERSION_LESS "4.0.0")
-ENDIF(UNIX OR MINGW)
-
 #The CDT Error Parser cannot handle error messages that span 
 #more than one line, which is the default gcc behavior. 
 #In order to force gcc to generate single line error messages with no line wrapping
@@ -537,6 +529,16 @@ ENDIF(WITH_G2O)
 IF(WITH_GTSAM)
     # Force config mode to ignore PCL's findGTSAM.cmake file
     FIND_PACKAGE(GTSAM CONFIG QUIET)
+    IF(GTSAM_FOUND)
+      # For issue https://github.com/introlab/rtabmap/pull/1626
+      FIND_FILE(GTSAM_NOISE_MODEL_FACTOR_N_FILE gtsam/nonlinear/NoiseModelFactorN.h
+         PATHS ${GTSAM_INCLUDE_DIR}
+         NO_DEFAULT_PATH)
+      IF(GTSAM_NOISE_MODEL_FACTOR_N_FILE)
+         MESSAGE(STATUS "GTSAM with NoiseModelFactorN.h")
+         ADD_DEFINITIONS("-DGTSAM_WITH_NOISE_MODEL_FACTOR_N")
+      ENDIF(GTSAM_NOISE_MODEL_FACTOR_N_FILE)
+    ENDIF(GTSAM_FOUND)
 ENDIF(WITH_GTSAM)
 
 IF(WITH_MRPT)
@@ -868,7 +870,7 @@ IF(WITH_ORB_SLAM AND NOT G2O_FOUND)
 ENDIF(WITH_ORB_SLAM AND NOT G2O_FOUND)
 
 IF(WITH_CUVSLAM)
-    FIND_PACKAGE(CuVSLAM)
+    FIND_PACKAGE(CuVSLAM 14.0.0)
     IF(CUVSLAM_FOUND)
         MESSAGE(STATUS "Found cuVSLAM: ${CUVSLAM_INCLUDE_DIRS}")
     ENDIF()
