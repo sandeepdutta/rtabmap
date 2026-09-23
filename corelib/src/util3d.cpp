@@ -41,7 +41,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <pcl/common/transforms.h>
 #include <pcl/common/common.h>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/imgproc/types_c.h>
 
 namespace rtabmap
 {
@@ -49,7 +48,7 @@ namespace rtabmap
 namespace util3d
 {
 
-cv::Mat bgrFromCloud(const pcl::PointCloud<pcl::PointXYZRGBA> & cloud, bool bgrOrder)
+cv::Mat rgbFromCloud(const pcl::PointCloud<pcl::PointXYZRGBA> & cloud, bool bgrOrder)
 {
 	cv::Mat frameBGR = cv::Mat(cloud.height,cloud.width,CV_8UC3);
 
@@ -77,13 +76,9 @@ cv::Mat bgrFromCloud(const pcl::PointCloud<pcl::PointXYZRGBA> & cloud, bool bgrO
 // return float image in meter
 cv::Mat depthFromCloud(
 		const pcl::PointCloud<pcl::PointXYZRGBA> & cloud,
-		float & fx,
-		float & fy,
 		bool depth16U)
 {
 	cv::Mat frameDepth = cv::Mat(cloud.height,cloud.width,depth16U?CV_16UC1:CV_32FC1);
-	fx = 0.0f; // needed to reconstruct the cloud
-	fy = 0.0f; // needed to reconstruct the cloud
 	for(unsigned int h = 0; h < cloud.height; h++)
 	{
 		for(unsigned int w = 0; w < cloud.width; w++)
@@ -103,32 +98,6 @@ cv::Mat depthFromCloud(
 			{
 				frameDepth.at<float>(h,w) = depth;
 			}
-
-			// update constants
-			if(fx == 0.0f &&
-			   uIsFinite(cloud.at(h*cloud.width + w).x) &&
-			   uIsFinite(depth) &&
-			   w != cloud.width/2 &&
-			   depth > 0)
-			{
-				fx = cloud.at(h*cloud.width + w).x / ((float(w) - float(cloud.width)/2.0f) * depth);
-				if(depth16U)
-				{
-					fx*=1000.0f;
-				}
-			}
-			if(fy == 0.0f &&
-			   uIsFinite(cloud.at(h*cloud.width + w).y) &&
-			   uIsFinite(depth) &&
-			   h != cloud.height/2 &&
-			   depth > 0)
-			{
-				fy = cloud.at(h*cloud.width + w).y / ((float(h) - float(cloud.height)/2.0f) * depth);
-				if(depth16U)
-				{
-					fy*=1000.0f;
-				}
-			}
 		}
 	}
 	return frameDepth;
@@ -138,16 +107,12 @@ cv::Mat depthFromCloud(
 void rgbdFromCloud(const pcl::PointCloud<pcl::PointXYZRGBA> & cloud,
 		cv::Mat & frameBGR,
 		cv::Mat & frameDepth,
-		float & fx,
-		float & fy,
 		bool bgrOrder,
 		bool depth16U)
 {
 	frameDepth = cv::Mat(cloud.height,cloud.width,depth16U?CV_16UC1:CV_32FC1);
 	frameBGR = cv::Mat(cloud.height,cloud.width,CV_8UC3);
 
-	fx = 0.0f; // needed to reconstruct the cloud
-	fy = 0.0f; // needed to reconstruct the cloud
 	for(unsigned int h = 0; h < cloud.height; h++)
 	{
 		for(unsigned int w = 0; w < cloud.width; w++)
@@ -181,32 +146,6 @@ void rgbdFromCloud(const pcl::PointCloud<pcl::PointXYZRGBA> & cloud,
 			else
 			{
 				frameDepth.at<float>(h,w) = depth;
-			}
-
-			// update constants
-			if(fx == 0.0f &&
-			   uIsFinite(cloud.at(h*cloud.width + w).x) &&
-			   uIsFinite(depth) &&
-			   w != cloud.width/2 &&
-			   depth > 0)
-			{
-				fx = 1.0f/(cloud.at(h*cloud.width + w).x / ((float(w) - float(cloud.width)/2.0f) * depth));
-				if(depth16U)
-				{
-					fx/=1000.0f;
-				}
-			}
-			if(fy == 0.0f &&
-			   uIsFinite(cloud.at(h*cloud.width + w).y) &&
-			   uIsFinite(depth) &&
-			   h != cloud.height/2 &&
-			   depth > 0)
-			{
-				fy = 1.0f/(cloud.at(h*cloud.width + w).y / ((float(h) - float(cloud.height)/2.0f) * depth));
-				if(depth16U)
-				{
-					fy/=1000.0f;
-				}
 			}
 		}
 	}
@@ -892,7 +831,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudFromStereoImages(
 	cv::Mat leftMono;
 	if(leftColor.channels() == 3)
 	{
-		cv::cvtColor(leftColor, leftMono, CV_BGR2GRAY);
+		cv::cvtColor(leftColor, leftMono, cv::COLOR_BGR2GRAY);
 	}
 	else
 	{
@@ -902,7 +841,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudFromStereoImages(
 	cv::Mat rightMono;
 	if(rightColor.channels() == 3)
 	{
-		cv::cvtColor(rightColor, rightMono, CV_BGR2GRAY);
+		cv::cvtColor(rightColor, rightMono, cv::COLOR_BGR2GRAY);
 	}
 	else
 	{
@@ -1038,7 +977,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> cloudsFromSensorData(
 		cv::Mat leftMono;
 		if(sensorData.imageRaw().channels() == 3)
 		{
-			cv::cvtColor(sensorData.imageRaw(), leftMono, CV_BGR2GRAY);
+			cv::cvtColor(sensorData.imageRaw(), leftMono, cv::COLOR_BGR2GRAY);
 		}
 		else
 		{
@@ -1048,7 +987,7 @@ std::vector<pcl::PointCloud<pcl::PointXYZ>::Ptr> cloudsFromSensorData(
 		cv::Mat rightMono;
 		if(sensorData.rightRaw().channels() == 3)
 		{
-			cv::cvtColor(sensorData.rightRaw(), rightMono, CV_BGR2GRAY);
+			cv::cvtColor(sensorData.rightRaw(), rightMono, cv::COLOR_BGR2GRAY);
 		}
 		else
 		{
@@ -1465,28 +1404,25 @@ pcl::PointCloud<pcl::PointXYZ> laserScanFromDepthImages(
 		float minDepth)
 {
 	pcl::PointCloud<pcl::PointXYZ> scan;
+	UASSERT(!depthImages.empty() && !cameraModels.empty());
 	UASSERT(int((depthImages.cols/cameraModels.size())*cameraModels.size()) == depthImages.cols);
 	int subImageWidth = depthImages.cols/cameraModels.size();
 	for(int i=(int)cameraModels.size()-1; i>=0; --i)
 	{
-		if(cameraModels[i].isValidForProjection())
-		{
-			cv::Mat depth = cv::Mat(depthImages, cv::Rect(subImageWidth*i, 0, subImageWidth, depthImages.rows));
+		UASSERT(cameraModels[i].isValidForProjection());
+		UASSERT(cameraModels[i].imageWidth() == subImageWidth);
+		UASSERT(subImageWidth*(i+1) <= depthImages.cols);
+		cv::Mat depth = cv::Mat(depthImages, cv::Rect(subImageWidth*i, 0, subImageWidth, depthImages.rows));
 
-			scan += laserScanFromDepthImage(
-					depth,
-					cameraModels[i].fx(),
-					cameraModels[i].fy(),
-					cameraModels[i].cx(),
-					cameraModels[i].cy(),
-					maxDepth,
-					minDepth,
-					cameraModels[i].localTransform());
-		}
-		else
-		{
-			UERROR("Camera model %d is invalid", i);
-		}
+		scan += laserScanFromDepthImage(
+				depth,
+				cameraModels[i].fx(),
+				cameraModels[i].fy(),
+				cameraModels[i].cx(),
+				cameraModels[i].cy(),
+				maxDepth,
+				minDepth,
+				cameraModels[i].localTransform());
 	}
 	return scan;
 }
@@ -1760,6 +1696,55 @@ LaserScan laserScanFromPointCloud(const pcl::PointCloud<pcl::PointXYZRGB> & clou
 LaserScan laserScanFromPointCloud(const pcl::PointCloud<pcl::PointXYZI> & cloud, const Transform & transform, bool filterNaNs)
 {
 	return laserScanFromPointCloud(cloud, pcl::IndicesPtr(), transform, filterNaNs);
+}
+
+LaserScan laserScanFromPointCloud(const pcl::PointCloud<rtabmap::PointXYZIRT> & cloud, const Transform & transform, bool filterNaNs)
+{
+	return laserScanFromPointCloud(cloud, pcl::IndicesPtr(), transform, filterNaNs);
+}
+
+LaserScan laserScanFromPointCloud(const pcl::PointCloud<rtabmap::PointXYZIRT> & cloud, const pcl::IndicesPtr & indices, const Transform & transform, bool filterNaNs)
+{
+	// Layout: [x, y, z, intensity, ring, time] (ring cast to float, values up to
+	// ~16M are exactly representable so all realistic laser line counts fit).
+	cv::Mat laserScan;
+	bool nullTransform = transform.isNull() || transform.isIdentity();
+	Eigen::Affine3f transform3f = transform.toEigen3f();
+	int oi = 0;
+	const int total = indices.get() ? (int)indices->size() : (int)cloud.size();
+	laserScan = cv::Mat(1, total, CV_32FC(6));
+	for(int i=0; i<total; ++i)
+	{
+		int index = indices.get() ? indices->at(i) : i;
+		const rtabmap::PointXYZIRT & src = cloud.at(index);
+		if(filterNaNs && !pcl::isFinite(src))
+		{
+			continue;
+		}
+		float * ptr = laserScan.ptr<float>(0, oi++);
+		if(!nullTransform)
+		{
+			pcl::PointXYZ pt(src.x, src.y, src.z);
+			pt = pcl::transformPoint(pt, transform3f);
+			ptr[0] = pt.x;
+			ptr[1] = pt.y;
+			ptr[2] = pt.z;
+		}
+		else
+		{
+			ptr[0] = src.x;
+			ptr[1] = src.y;
+			ptr[2] = src.z;
+		}
+		ptr[3] = src.intensity;
+		ptr[4] = static_cast<float>(src.ring);
+		ptr[5] = src.time;
+	}
+	if(oi == 0)
+	{
+		return LaserScan();
+	}
+	return LaserScan(laserScan(cv::Range::all(), cv::Range(0, oi)), 0, 0.0f, LaserScan::kXYZIRT);
 }
 
 LaserScan laserScanFromPointCloud(const pcl::PointCloud<pcl::PointXYZI> & cloud, const pcl::IndicesPtr & indices, const Transform & transform, bool filterNaNs)
@@ -2343,7 +2328,7 @@ pcl::PCLPointCloud2::Ptr laserScanToPointCloud2(const LaserScan & laserScan, con
 	{
 		pcl::toPCLPointCloud2(*laserScanToPointCloud(laserScan, transform), *cloud);
 	}
-	else if(laserScan.format() == LaserScan::kXYI || laserScan.format() == LaserScan::kXYZI || laserScan.format() == LaserScan::kXYZIT)
+	else if(laserScan.format() == LaserScan::kXYI || laserScan.format() == LaserScan::kXYZI || laserScan.format() == LaserScan::kXYZIT || laserScan.format() == LaserScan::kXYZIRT)
 	{
 		pcl::toPCLPointCloud2(*laserScanToPointCloudI(laserScan, transform), *cloud);
 	}
@@ -2581,11 +2566,7 @@ pcl::PointXYZRGB laserScanToPointRGB(const LaserScan & laserScan, int index, uns
 
 	if(laserScan.hasRGB())
 	{
-		int * ptrInt = (int*)ptr;
-		int indexRGB = laserScan.getRGBOffset();
-		output.b = (unsigned char)(ptrInt[indexRGB] & 0xFF);
-		output.g = (unsigned char)((ptrInt[indexRGB] >> 8) & 0xFF);
-		output.r = (unsigned char)((ptrInt[indexRGB] >> 16) & 0xFF);
+		LaserScan::unpackRGB(ptr[laserScan.getRGBOffset()], output.r, output.g, output.b);
 	}
 	else if(laserScan.hasIntensity())
 	{
@@ -2647,11 +2628,7 @@ pcl::PointXYZRGBNormal laserScanToPointRGBNormal(const LaserScan & laserScan, in
 
 	if(laserScan.hasRGB())
 	{
-		int * ptrInt = (int*)ptr;
-		int indexRGB = laserScan.getRGBOffset();
-		output.b = (unsigned char)(ptrInt[indexRGB] & 0xFF);
-		output.g = (unsigned char)((ptrInt[indexRGB] >> 8) & 0xFF);
-		output.r = (unsigned char)((ptrInt[indexRGB] >> 16) & 0xFF);
+		LaserScan::unpackRGB(ptr[laserScan.getRGBOffset()], output.r, output.g, output.b);
 	}
 	else if(laserScan.hasIntensity())
 	{
@@ -3277,7 +3254,7 @@ std::vector<std::pair< std::pair<int, int>, pcl::PointXY> > projectCloudToCamera
 		return pointToPixel;
 
 	std::string msg = uFormat("Computing visible points per cam (%d points, %d cams)", (int)cloud.size(), (int)cameraPoses.size());
-	UINFO(msg.c_str());
+	UINFO("%s", msg.c_str());
 	if(state && !state->callback(msg))
 	{
 		//cancelled!
@@ -3406,11 +3383,11 @@ std::vector<std::pair< std::pair<int, int>, pcl::PointXY> > projectCloudToCamera
 				if(count == 0)
 				{
 					registered.clear();
-					UINFO("No points projected in camera %d/%d", pter->first, camIndex);
+					UINFO("No points projected in camera %d/%d", pter->first, (int)camIndex);
 				}
 				else
 				{
-					UDEBUG("%d points projected in camera %d/%d", count, pter->first, camIndex);
+					UDEBUG("%d points projected in camera %d/%d", count, pter->first, (int)camIndex);
 				}
 				for(int u=0; u<imageSize.width; ++u)
 				{
@@ -3468,7 +3445,7 @@ std::vector<std::pair< std::pair<int, int>, pcl::PointXY> > projectCloudToCamera
 		}
 
 		msg = uFormat("Processed camera %d/%d", (int)cameraProcessed+1, (int)cameraPoses.size());
-		UINFO(msg.c_str());
+		UINFO("%s", msg.c_str());
 		if(state && !state->callback(msg))
 		{
 			//cancelled!
@@ -3479,7 +3456,7 @@ std::vector<std::pair< std::pair<int, int>, pcl::PointXY> > projectCloudToCamera
 	}
 
 	msg = uFormat("Select best camera for %d points...", (int)cloud.size());
-	UINFO(msg.c_str());
+	UINFO("%s", msg.c_str());
 	if(state && !state->callback(msg))
 	{
 		//cancelled!
@@ -3512,8 +3489,8 @@ std::vector<std::pair< std::pair<int, int>, pcl::PointXY> > projectCloudToCamera
 		}
 	}
 
-	msg = uFormat("Process %d points...done! (%d [%d%%] projected in cameras)", (int)cloud.size(), colorized, colorized*100/cloud.size());
-	UINFO(msg.c_str());
+	msg = uFormat("Process %d points...done! (%d [%d%%] projected in cameras)", (int)cloud.size(), colorized, (int)(colorized*100/cloud.size()));
+	UINFO("%s", msg.c_str());
 	if(state)
 	{
 		state->callback(msg);
@@ -3807,9 +3784,11 @@ LaserScan deskew(
 		return LaserScan();
 	}
 
-	if(input.format() != LaserScan::kXYZIT)
+	if(!input.hasTime())
 	{
-		UERROR("input scan doesn't have \"time\" channel! Only format \"%s\" supported yet.", LaserScan::formatName(LaserScan::kXYZIT).c_str());
+		UERROR("input scan doesn't have a \"time\" channel! Supported formats: \"%s\", \"%s\".",
+			LaserScan::formatName(LaserScan::kXYZIT).c_str(),
+			LaserScan::formatName(LaserScan::kXYZIRT).c_str());
 		return LaserScan();
 	}
 
@@ -3865,7 +3844,14 @@ LaserScan deskew(
 	double stamp;
 	UTimer processingTime;
 	double scanTime = lastStamp - firstStamp;
-	cv::Mat output(1, input.size(), CV_32FC4); // XYZI - Dense
+	// Preserve ring when input carries it (kXYZIRT): the geometric channel is
+	// still meaningful after deskewing. Per-point time is zeroed because all
+	// points share the same pose after correction.
+	const bool preserveRing = input.hasRing();
+	const int offsetRing = input.getRingOffset();
+	const LaserScan::Format outputFormat = preserveRing ? LaserScan::kXYZIRT : LaserScan::kXYZI;
+	const int outputChannels = preserveRing ? 6 : 4;
+	cv::Mat output(1, input.size(), CV_32FC(outputChannels));
 	int offsetIntensity = input.getIntensityOffset();
 	bool isLocalTransformIdentity = input.localTransform().isIdentity();
 	Transform localTransformInv = input.localTransform().inverse();
@@ -3904,7 +3890,12 @@ LaserScan deskew(
 					dataPtr[0] = pt.x;
 					dataPtr[1] = pt.y;
 					dataPtr[2] = pt.z;
-					dataPtr[3] = input.data().ptr<float>(v, u)[offsetIntensity];
+					dataPtr[3] = inputPtr[offsetIntensity];
+					if(preserveRing)
+					{
+						dataPtr[4] = inputPtr[offsetRing];
+						dataPtr[5] = 0.0f;
+					}
 				}
 			}
 		}
@@ -3941,14 +3932,19 @@ LaserScan deskew(
 					dataPtr[0] = pt.x;
 					dataPtr[1] = pt.y;
 					dataPtr[2] = pt.z;
-					dataPtr[3] = input.data().ptr<float>(v, u)[offsetIntensity];
+					dataPtr[3] = inputPtr[offsetIntensity];
+					if(preserveRing)
+					{
+						dataPtr[4] = inputPtr[offsetRing];
+						dataPtr[5] = 0.0f;
+					}
 				}
 			}
 		}
 	}
 	output = cv::Mat(output, cv::Range::all(), cv::Range(0, oi));
 	UDEBUG("Lidar deskewing time=%fs", processingTime.elapsed());
-	return LaserScan(output, input.maxPoints(), input.rangeMax(), LaserScan::kXYZI, input.localTransform());
+	return LaserScan(output, input.maxPoints(), input.rangeMax(), outputFormat, input.localTransform());
 }
 
 

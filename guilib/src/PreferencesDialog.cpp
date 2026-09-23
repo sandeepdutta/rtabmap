@@ -39,8 +39,19 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <QtCore/QSettings>
 #include <QtCore/QDir>
+#include <QtCore/QFile>
+#include <QtCore/QFileInfo>
+#include <QtCore/QStandardPaths>
 #include <QtCore/QTimer>
 #include <QUrl>
+
+#ifndef _WIN32
+#include <unistd.h>   // geteuid, chown
+#include <sys/types.h>
+#include <cstdlib>    // atoi, getenv
+#include <cerrno>
+#include <cstring>    // strerror
+#endif
 
 #include <QButtonGroup>
 #include <QFileDialog>
@@ -49,6 +60,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QtGui/QStandardItemModel>
 #include <QMainWindow>
 #include <QProgressDialog>
+#include <QApplication>
+#include <QEventLoop>
+#include <QElapsedTimer>
+#include <QtGui/QWindow>
+#include <QLabel>
+#include <functional>
 #include <QScrollBar>
 #include <QStatusBar>
 #include <QFormLayout>
@@ -56,6 +73,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <QtGui/QCloseEvent>
 
 #include "ui_preferencesDialog.h"
+#include "GuiUtil.h"
 
 #include "rtabmap/core/Version.h"
 #include "rtabmap/core/Parameters.h"
@@ -134,11 +152,11 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	bool haveCuda = false;
 #if CV_MAJOR_VERSION < 3
 #ifdef HAVE_OPENCV_GPU
-	haveCuda = cv::gpu::getCudaEnabledDeviceCount() != 0;
+	haveCuda = cv::gpu::getCudaEnabledDeviceCount() > 0;
 #endif
 #else
 #ifdef HAVE_OPENCV_CUDAFEATURES2D
-	haveCuda = cv::cuda::getCudaEnabledDeviceCount() != 0;
+	haveCuda = cv::cuda::getCudaEnabledDeviceCount() > 0;
 #endif
 #endif
 	if(!haveCuda)
@@ -171,6 +189,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->sift_label_gpu->setEnabled(false);
 	_ui->sift_doubleSpinBox_gaussianDiffThreshold->setEnabled(false);
 	_ui->sift_label_gaussianThreshold->setEnabled(false);
+	_ui->sift_doubleSpinBox_maxGaussianDiffThreshold->setEnabled(false);
+	_ui->sift_label_maxGaussianThreshold->setEnabled(false);
 	_ui->sift_checkBox_upscale->setEnabled(false);
 	_ui->sift_label_upscale->setEnabled(false);
 #endif
@@ -240,6 +260,9 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 #endif
 #ifndef RTABMAP_CUVSLAM
 	_ui->odom_strategy->setItemData(13, 0, Qt::UserRole - 1);
+#endif
+#ifndef RTABMAP_LIOSAM
+	_ui->odom_strategy->setItemData(14, 0, Qt::UserRole - 1);
 #endif
 
 #if CV_MAJOR_VERSION < 3
@@ -432,12 +455,29 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 		_ui->comboBox_cameraStereo->setItemData(kSrcStereoZed - kSrcStereo, 0, Qt::UserRole - 1);
 		_ui->comboBox_odom_sensor->setItemData(2, 0, Qt::UserRole - 1);
 	}
-	else if(CameraStereoZed::sdkVersion() < 4)
+	else
 	{
-		_ui->comboBox_stereoZed_resolution->setItemData(1, 0, Qt::UserRole - 1);
-		_ui->comboBox_stereoZed_resolution->setItemData(4, 0, Qt::UserRole - 1);
-		_ui->comboBox_stereoZed_resolution->setItemData(6, 0, Qt::UserRole - 1);
-		_ui->comboBox_stereoZed_quality->setItemData(3, 0, Qt::UserRole - 1);
+		if(CameraStereoZed::sdkVersion() < 5)
+		{
+			// SDK 4.X
+			_ui->comboBox_stereoZed_quality->setItemData(5, 0, Qt::UserRole - 1); // NEURAL_ULTRA
+			_ui->comboBox_stereoZed_resolution->setItemData(4, 0, Qt::UserRole - 1); //HD1536
+			_ui->comboBox_stereoZed_resolution->setItemData(10, 0, Qt::UserRole - 1); //XVGA
+			_ui->comboBox_stereoZed_resolution->setItemData(11, 0, Qt::UserRole - 1); //TXGA 
+		}
+		if(CameraStereoZed::sdkVersion() < 4)
+		{
+			// SDK 3.X
+			_ui->comboBox_stereoZed_quality->setItemData(3, 0, Qt::UserRole - 1); // NEURAL_LIGHT
+			_ui->comboBox_stereoZed_resolution->setItemData(1, 0, Qt::UserRole - 1); // HD4K
+			_ui->comboBox_stereoZed_resolution->setItemData(2, 0, Qt::UserRole - 1); // QHDPLUS
+			_ui->comboBox_stereoZed_resolution->setItemData(6, 0, Qt::UserRole - 1); // HD1200
+			_ui->comboBox_stereoZed_resolution->setItemData(8, 0, Qt::UserRole - 1); // SVGA
+		}
+		if(CameraStereoZed::sdkVersion() < 3)
+		{
+			_ui->comboBox_stereoZed_quality->setItemData(4, 0, Qt::UserRole - 1); // NEURAL
+		}
 	}
     if (!CameraStereoTara::available())
     {
@@ -470,15 +510,14 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->checkBox_showOdomFrustums->setChecked(false);
 #endif
 
-	//if OpenCV < 3.4.2
-#if CV_MAJOR_VERSION < 3 || (CV_MAJOR_VERSION == 3 && (CV_MINOR_VERSION <4 || (CV_MINOR_VERSION ==4 && CV_SUBMINOR_VERSION<2)))
-	_ui->ArucoDictionary->setItemData(17, 0, Qt::UserRole - 1);
-	_ui->ArucoDictionary->setItemData(18, 0, Qt::UserRole - 1);
-	_ui->ArucoDictionary->setItemData(19, 0, Qt::UserRole - 1);
-	_ui->ArucoDictionary->setItemData(20, 0, Qt::UserRole - 1);
+#if !((CV_MAJOR_VERSION > 4 || (CV_MAJOR_VERSION==4 && CV_MINOR_VERSION >=7)) && defined(HAVE_OPENCV_OBJDETECT)) && !defined(HAVE_OPENCV_ARUCO) && !defined(RTABMAP_APRILTAG)
+	_ui->label_markerDetection->setText(_ui->label_markerDetection->text()+" This option works only if OpenCV has been built with \"aruco\" module and/or RTAB-Map has been built with AprilTag library support.");
 #endif
-#ifndef HAVE_OPENCV_ARUCO
-	_ui->label_markerDetection->setText(_ui->label_markerDetection->text()+" This option works only if OpenCV has been built with \"aruco\" module.");
+#if !(((CV_MAJOR_VERSION > 4 || (CV_MAJOR_VERSION==4 && CV_MINOR_VERSION >=7)) && defined(HAVE_OPENCV_OBJDETECT)) || defined(HAVE_OPENCV_ARUCO))
+	_ui->MarkerStrategy->setItemData(0, 0, Qt::UserRole - 1);
+#endif
+#ifndef RTABMAP_APRILTAG
+	_ui->MarkerStrategy->setItemData(1, 0, Qt::UserRole - 1);
 #endif
 
 #ifndef RTABMAP_MADGWICK
@@ -756,6 +795,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->source_checkBox_ignoreFeatures, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->source_checkBox_ignorePriors, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->source_checkBox_ignoreIMU, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->source_checkBox_intermediateNodesAreNormalNodes, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->source_spinBox_databaseStartId, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->source_spinBox_databaseStopId, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->source_checkBox_useDbStamps, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
@@ -838,6 +878,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->lineEdit_cameraRGBDImages_path_rgb, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraRGBDImages_path_depth, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_cameraImages_configForEachFrame, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->checkBox_cameraImages_multiCameraCalibration, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_cameraImages_timestamps, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_cameraImages_syncTimeStamps, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->doubleSpinBox_cameraRGBDImages_scale, SIGNAL(valueChanged(double)), this, SLOT(makeObsoleteSourcePanel()));
@@ -850,6 +891,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->comboBox_cameraImages_odomFormat, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraImages_gt, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->comboBox_cameraImages_gtFormat, SIGNAL(currentIndexChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->lineEdit_cameraImages_gt_transform, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->doubleSpinBox_maxPoseTimeDiff, SIGNAL(valueChanged(double)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraImages_path_imu, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->lineEdit_cameraImages_imu_transform, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
@@ -978,7 +1020,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->lineEdit_vlp16_pcap_path, SIGNAL(textChanged(const QString &)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->spinBox_vlp16_ip1, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->spinBox_vlp16_ip2, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
-	connect(_ui->spinBox_vlp16_ip2, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
+	connect(_ui->spinBox_vlp16_ip3, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->spinBox_vlp16_ip4, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->spinBox_vlp16_port, SIGNAL(valueChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
 	connect(_ui->checkBox_vlp16_organized, SIGNAL(stateChanged(int)), this, SLOT(makeObsoleteSourcePanel()));
@@ -1090,6 +1132,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->general_doubleSpinBox_vp->setObjectName(Parameters::kBayesVirtualPlacePriorThr().c_str());
 	_ui->lineEdit_bayes_predictionLC->setObjectName(Parameters::kBayesPredictionLC().c_str());
 	_ui->checkBox_bayes_fullPredictionUpdate->setObjectName(Parameters::kBayesFullPredictionUpdate().c_str());
+	_ui->checkBox_bayes_sparsePrediction->setObjectName(Parameters::kBayesSparsePrediction().c_str());
 	connect(_ui->lineEdit_bayes_predictionLC, SIGNAL(textChanged(const QString &)), this, SLOT(updatePredictionPlot()));
 
 	//Keypoint-based
@@ -1098,6 +1141,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->checkBox_kp_incrementalFlann->setObjectName(Parameters::kKpIncrementalFlann().c_str());
 	_ui->checkBox_kp_byteToFloat->setObjectName(Parameters::kKpByteToFloat().c_str());
 	_ui->surf_doubleSpinBox_rebalancingFactor->setObjectName(Parameters::kKpFlannRebalancingFactor().c_str());
+	_ui->spinBox_kp_flannThreads->setObjectName(Parameters::kKpFlannThreads().c_str());
 	_ui->comboBox_detector_strategy->setObjectName(Parameters::kKpDetectorStrategy().c_str());
 	_ui->surf_doubleSpinBox_nndrRatio->setObjectName(Parameters::kKpNndrRatio().c_str());
 	_ui->surf_doubleSpinBox_maxDepth->setObjectName(Parameters::kKpMaxDepth().c_str());
@@ -1144,6 +1188,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->sift_checkBox_rootsift->setObjectName(Parameters::kSIFTRootSIFT().c_str());
 	_ui->sift_checkBox_gpu->setObjectName(Parameters::kSIFTGpu().c_str());
 	_ui->sift_doubleSpinBox_gaussianDiffThreshold->setObjectName(Parameters::kSIFTGaussianThreshold().c_str());
+	_ui->sift_doubleSpinBox_maxGaussianDiffThreshold->setObjectName(Parameters::kSIFTMaxGaussianThreshold().c_str());
 	_ui->sift_checkBox_upscale->setObjectName(Parameters::kSIFTUpscale().c_str());
 
 	//BRIEF descriptor
@@ -1265,6 +1310,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->graphOptimization_covarianceIgnored->setObjectName(Parameters::kOptimizerVarianceIgnored().c_str());
 	_ui->graphOptimization_fromGraphEnd->setObjectName(Parameters::kRGBDOptimizeFromGraphEnd().c_str());
 	_ui->graphOptimization_maxError->setObjectName(Parameters::kRGBDOptimizeMaxError().c_str());
+	_ui->graphOptimization_maxErrorRepairRadius->setObjectName(Parameters::kRGBDOptimizeMaxErrorRepairRadius().c_str());
 	_ui->graphOptimization_gravitySigma->setObjectName(Parameters::kOptimizerGravitySigma().c_str());
 	_ui->graphOptimization_stopEpsilon->setObjectName(Parameters::kOptimizerEpsilon().c_str());
 	_ui->graphOptimization_robust->setObjectName(Parameters::kOptimizerRobust().c_str());
@@ -1273,9 +1319,10 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 
 	_ui->comboBox_g2o_solver->setObjectName(Parameters::kg2oSolver().c_str());
 	_ui->comboBox_g2o_optimizer->setObjectName(Parameters::kg2oOptimizer().c_str());
-	_ui->doubleSpinBox_g2o_pixelVariance->setObjectName(Parameters::kg2oPixelVariance().c_str());
-	_ui->doubleSpinBox_g2o_robustKernelDelta->setObjectName(Parameters::kg2oRobustKernelDelta().c_str());
-	_ui->doubleSpinBox_g2o_baseline->setObjectName(Parameters::kg2oBaseline().c_str());
+	_ui->doubleSpinBox_g2o_pixelVariance->setObjectName(Parameters::kOptimizerPixelVariance().c_str());
+	_ui->doubleSpinBox_optimizer_disparityVariance->setObjectName(Parameters::kOptimizerDisparityVariance().c_str());
+	_ui->doubleSpinBox_g2o_robustKernelDelta->setObjectName(Parameters::kOptimizerRobustKernelDelta().c_str());
+	_ui->doubleSpinBox_g2o_baseline->setObjectName(Parameters::kOptimizerBaseline().c_str());
 
 	_ui->comboBox_gtsam_optimizer->setObjectName(Parameters::kGTSAMOptimizer().c_str());
 	_ui->gtsam_incremental->setObjectName(Parameters::kGTSAMIncremental().c_str());
@@ -1358,6 +1405,9 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->odom_flow_iterations->setObjectName(Parameters::kVisCorFlowIterations().c_str());
 	_ui->odom_flow_eps->setObjectName(Parameters::kVisCorFlowEps().c_str());
 	_ui->odom_flow_gpu->setObjectName(Parameters::kVisCorFlowGpu().c_str());
+	_ui->odom_flow_useMinEigenVals->setObjectName(Parameters::kVisCorFlowUseMinEigenVals().c_str());
+	_ui->odom_flow_minEigThreshold->setObjectName(Parameters::kVisCorFlowMinEigThreshold().c_str());
+	_ui->odom_flow_errorThreshold->setObjectName(Parameters::kVisCorFlowErrorThreshold().c_str());
 	_ui->loopClosure_bundle->setObjectName(Parameters::kVisBundleAdjustment().c_str());
 
 	//RegistrationIcp
@@ -1382,6 +1432,7 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->loopClosure_icpPointToPlaneNormalsRadius->setObjectName(Parameters::kIcpPointToPlaneRadius().c_str());
 	_ui->loopClosure_icpPointToPlaneGroundNormalsUp->setObjectName(Parameters::kIcpPointToPlaneGroundNormalsUp().c_str());
 	_ui->loopClosure_icpPointToPlaneNormalsMinComplexity->setObjectName(Parameters::kIcpPointToPlaneMinComplexity().c_str());
+	_ui->loopClosure_icpPointToPlaneComplexityCentered->setObjectName(Parameters::kIcpPointToPlaneComplexityCentered().c_str());
 	_ui->loopClosure_icpPointToPlaneLowComplexityStrategy->setObjectName(Parameters::kIcpPointToPlaneLowComplexityStrategy().c_str());
 	_ui->loopClosure_icpDebugExportFormat->setObjectName(Parameters::kIcpDebugExportFormat().c_str());
 
@@ -1606,6 +1657,8 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	connect(_ui->toolButton_OdomVinsFusionPath, SIGNAL(clicked()), this, SLOT(changeOdometryVINSFusionConfigPath()));
 
 	// Odometry OpenVINS
+	_ui->lineEdit_openvinsConfigPath->setObjectName(Parameters::kOdomOpenVINSConfigPath().c_str());
+	connect(_ui->toolButton_openvinsConfigPath, SIGNAL(clicked()), this, SLOT(changeOdometryOpenVINSConfigPath()));
 	_ui->checkBox_OdomOpenVINSUseStereo->setObjectName(Parameters::kOdomOpenVINSUseStereo().c_str());
 	_ui->checkBox_OdomOpenVINSUseKLT->setObjectName(Parameters::kOdomOpenVINSUseKLT().c_str());
 	_ui->spinBox_OdomOpenVINSNumPts->setObjectName(Parameters::kOdomOpenVINSNumPts().c_str());
@@ -1678,6 +1731,9 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->stereo_maxDisparity->setObjectName(Parameters::kStereoMaxDisparity().c_str());
 	_ui->stereo_ssd->setObjectName(Parameters::kStereoSSD().c_str());
 	_ui->stereo_flow_eps->setObjectName(Parameters::kStereoEps().c_str());
+	_ui->stereo_flow_useMinEigenVals->setObjectName(Parameters::kStereoUseMinEigenVals().c_str());
+	_ui->stereo_flow_minEigThreshold->setObjectName(Parameters::kStereoMinEigThreshold().c_str());
+	_ui->stereo_flow_errorThreshold->setObjectName(Parameters::kStereoErrorThreshold().c_str());
 	_ui->stereo_opticalFlow->setObjectName(Parameters::kStereoOpticalFlow().c_str());
 	_ui->stereo_flow_gpu->setObjectName(Parameters::kStereoGpu().c_str());
 
@@ -1687,6 +1743,22 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 
 	// Odometry CuVSLAM
 	_ui->odom_cuvslam_multicam_mode->setObjectName(Parameters::kOdomCuVSLAMMulticamMode().c_str());
+
+	// Odometry LIO-SAM
+	_ui->lineEdit_OdomLIOSAMPath->setObjectName(Parameters::kOdomLIOSAMConfigPath().c_str());
+	connect(_ui->toolButton_OdomLIOSAMPath, SIGNAL(clicked()), this, SLOT(changeOdometryLIOSAMConfigPath()));
+	_ui->odom_liosam_sensor->setObjectName(Parameters::kOdomLIOSAMSensor().c_str());
+	_ui->odom_liosam_nscan->setObjectName(Parameters::kOdomLIOSAMNScan().c_str());
+	_ui->odom_liosam_horizon_scan->setObjectName(Parameters::kOdomLIOSAMHorizonScan().c_str());
+	_ui->odom_liosam_imu_acc_noise->setObjectName(Parameters::kOdomLIOSAMImuAccNoise().c_str());
+	_ui->odom_liosam_imu_gyr_noise->setObjectName(Parameters::kOdomLIOSAMImuGyrNoise().c_str());
+	_ui->odom_liosam_imu_acc_bias_n->setObjectName(Parameters::kOdomLIOSAMImuAccBiasN().c_str());
+	_ui->odom_liosam_imu_gyr_bias_n->setObjectName(Parameters::kOdomLIOSAMImuGyrBiasN().c_str());
+	_ui->odom_liosam_imu_gravity->setObjectName(Parameters::kOdomLIOSAMImuGravity().c_str());
+	_ui->odom_liosam_edge_threshold->setObjectName(Parameters::kOdomLIOSAMEdgeThreshold().c_str());
+	_ui->odom_liosam_surf_threshold->setObjectName(Parameters::kOdomLIOSAMSurfThreshold().c_str());
+	_ui->odom_liosam_linvar->setObjectName(Parameters::kOdomLIOSAMLinVar().c_str());
+	_ui->odom_liosam_angvar->setObjectName(Parameters::kOdomLIOSAMAngVar().c_str());
 
 	//StereoDense
 	_ui->comboBox_stereoDense_strategy->setObjectName(Parameters::kStereoDenseStrategy().c_str());
@@ -1720,18 +1792,30 @@ PreferencesDialog::PreferencesDialog(QWidget * parent) :
 	_ui->stereosgbm_mode->setObjectName(Parameters::kStereoSGBMMode().c_str());
 
 	// Aruco marker
-	_ui->ArucoDictionary->setObjectName(Parameters::kMarkerDictionary().c_str());
-	_ui->ArucoMarkerLength->setObjectName(Parameters::kMarkerLength().c_str());
-	_ui->ArucoMaxDepthError->setObjectName(Parameters::kMarkerMaxDepthError().c_str());
-	_ui->ArucoVarianceLinear->setObjectName(Parameters::kMarkerVarianceLinear().c_str());
-	_ui->ArucoVarianceAngular->setObjectName(Parameters::kMarkerVarianceAngular().c_str());
-	_ui->ArucoVarianceOrientationIgnored->setObjectName(Parameters::kMarkerVarianceOrientationIgnored().c_str());
-	_ui->ArucoMarkerRangeMin->setObjectName(Parameters::kMarkerMinRange().c_str());
-	_ui->ArucoMarkerRangeMax->setObjectName(Parameters::kMarkerMaxRange().c_str());
-	_ui->ArucoMarkerPriors->setObjectName(Parameters::kMarkerPriors().c_str());
-	_ui->ArucoPriorsVarianceLinear->setObjectName(Parameters::kMarkerPriorsVarianceLinear().c_str());
-	_ui->ArucoPriorsVarianceAngular->setObjectName(Parameters::kMarkerPriorsVarianceAngular().c_str());
-	_ui->ArucoCornerRefinementMethod->setObjectName(Parameters::kMarkerCornerRefinementMethod().c_str());
+	_ui->MarkerStrategy->setObjectName(Parameters::kMarkerStrategy().c_str());
+	connect(_ui->MarkerStrategy, SIGNAL(currentIndexChanged(int)), _ui->stackedWidget_markerStrategy, SLOT(setCurrentIndex(int)));
+	connect(_ui->MarkerStrategy, SIGNAL(currentIndexChanged(int)), this, SLOT(updateAvailableMarkerDictionaries()));
+	_ui->MarkerStrategy->setCurrentIndex(Parameters::defaultMarkerStrategy());
+	updateAvailableMarkerDictionaries();
+	_ui->MarkerDictionary->setObjectName(Parameters::kMarkerDictionary().c_str());
+	_ui->MarkerLength->setObjectName(Parameters::kMarkerLength().c_str());
+	_ui->MarkerLengths->setObjectName(Parameters::kMarkerLengths().c_str());
+	_ui->MarkerMaxDepthError->setObjectName(Parameters::kMarkerMaxDepthError().c_str());
+	_ui->MarkerVarianceLinear->setObjectName(Parameters::kMarkerVarianceLinear().c_str());
+	_ui->MarkerVarianceAngular->setObjectName(Parameters::kMarkerVarianceAngular().c_str());
+	_ui->MarkerVarianceOrientationIgnored->setObjectName(Parameters::kMarkerVarianceOrientationIgnored().c_str());
+	_ui->MarkerRangeMin->setObjectName(Parameters::kMarkerMinRange().c_str());
+	_ui->MarkerRangeMax->setObjectName(Parameters::kMarkerMaxRange().c_str());
+	_ui->MarkerPriors->setObjectName(Parameters::kMarkerPriors().c_str());
+	_ui->MarkerPriorsVarianceLinear->setObjectName(Parameters::kMarkerPriorsVarianceLinear().c_str());
+	_ui->MarkerPriorsVarianceAngular->setObjectName(Parameters::kMarkerPriorsVarianceAngular().c_str());
+	_ui->OpenCVCornerRefinementMethod->setObjectName(Parameters::kMarkerOpenCVCornerRefinementMethod().c_str());
+	_ui->apriltag_nthreads->setObjectName(Parameters::kMarkerAprilTagNThreads().c_str());
+	_ui->apriltag_quad_decimate->setObjectName(Parameters::kMarkerAprilTagQuadDecimate().c_str());
+	_ui->apriltag_quad_sigma->setObjectName(Parameters::kMarkerAprilTagQuadSigma().c_str());
+	_ui->apriltag_refine_edges->setObjectName(Parameters::kMarkerAprilTagRefineEdges().c_str());
+	_ui->apriltag_decode_sharpening->setObjectName(Parameters::kMarkerAprilTagDecodeSharpening().c_str());
+	_ui->apriltag_debug->setObjectName(Parameters::kMarkerAprilTagDebug().c_str());
 
 	// IMU filter
 	_ui->doubleSpinBox_imuFilterMadgwickGain->setObjectName(Parameters::kImuFilterMadgwickGain().c_str());
@@ -2199,6 +2283,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->source_checkBox_ignoreFeatures->setChecked(true);
 		_ui->source_checkBox_ignorePriors->setChecked(false);
 		_ui->source_checkBox_ignoreIMU->setChecked(false);
+		_ui->source_checkBox_intermediateNodesAreNormalNodes->setChecked(false);
 		_ui->source_spinBox_databaseStartId->setValue(0);
 		_ui->source_spinBox_databaseStopId->setValue(0);
 		_ui->source_lineEdit_databaseCameraIndex->setText("");
@@ -2344,6 +2429,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->lineEdit_depthai_blob_path->clear();
 
 		_ui->checkBox_cameraImages_configForEachFrame->setChecked(false);
+		_ui->checkBox_cameraImages_multiCameraCalibration->setChecked(false);
 		_ui->checkBox_cameraImages_timestamps->setChecked(false);
 		_ui->checkBox_cameraImages_syncTimeStamps->setChecked(true);
 		_ui->lineEdit_cameraImages_timestamps->setText("");
@@ -2354,6 +2440,7 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 		_ui->comboBox_cameraImages_odomFormat->setCurrentIndex(0);
 		_ui->lineEdit_cameraImages_gt->setText("");
 		_ui->comboBox_cameraImages_gtFormat->setCurrentIndex(0);
+		_ui->lineEdit_cameraImages_gt_transform->setText("0 0 0 0 0 0");
 		_ui->doubleSpinBox_maxPoseTimeDiff->setValue(0.02);
 		_ui->lineEdit_cameraImages_path_imu->setText("");
 		_ui->lineEdit_cameraImages_imu_transform->setText("0 0 1 0 -1 0 1 0 0");
@@ -2392,10 +2479,10 @@ void PreferencesDialog::resetSettings(QGroupBox * groupBox)
 
 		_ui->lineEdit_lidar_local_transform->setText("0 0 0 0 0 0");
 		_ui->lineEdit_vlp16_pcap_path->clear();
-		_ui->spinBox_vlp16_ip1->setValue(192);
-		_ui->spinBox_vlp16_ip2->setValue(168);
-		_ui->spinBox_vlp16_ip3->setValue(1);
-		_ui->spinBox_vlp16_ip4->setValue(201);
+		_ui->spinBox_vlp16_ip1->setValue(0);
+		_ui->spinBox_vlp16_ip2->setValue(0);
+		_ui->spinBox_vlp16_ip3->setValue(0);
+		_ui->spinBox_vlp16_ip4->setValue(0);
 		_ui->spinBox_vlp16_port->setValue(2368);
 		_ui->checkBox_vlp16_organized->setChecked(false);
 		_ui->checkBox_vlp16_hostTime->setChecked(true);
@@ -2511,17 +2598,73 @@ QString PreferencesDialog::getWorkingDirectory() const
 
 QString PreferencesDialog::getIniFilePath() const
 {
+#ifdef WIN32
+	// Windows: store settings in the standard per-user config location (%LOCALAPPDATA%\rtabmap)
+	// instead of a Unix-style dotfile in the home root. A fixed "rtabmap" folder (not the app name)
+	// is used so the main GUI and DatabaseViewer share the same rtabmap.ini. Other platforms keep
+	// ~/.rtabmap for consistency.
+	QString privatePath = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/rtabmap";
+#else
 	QString privatePath = QDir::homePath() + "/.rtabmap";
+#endif
 	if(!QDir(privatePath).exists())
 	{
-		QDir::home().mkdir(".rtabmap");
+		QDir().mkpath(privatePath);
 	}
-	return privatePath + "/rtabmap.ini";
+	QString iniPath = privatePath + "/rtabmap.ini";
+#ifdef WIN32
+	// One-time migration: if there's no ini at the new location but the legacy ~/.rtabmap/rtabmap.ini
+	// exists, copy it over so users keep their existing settings.
+	if(!QFile::exists(iniPath))
+	{
+		QString legacyIni = QDir::homePath() + "/.rtabmap/rtabmap.ini";
+		if(QFile::exists(legacyIni))
+		{
+			QFile::copy(legacyIni, iniPath);
+		}
+	}
+#endif
+	return iniPath;
 }
 
 QString PreferencesDialog::getTmpIniFilePath() const
 {
 	return getIniFilePath()+".tmp";
+}
+
+void PreferencesDialog::restoreConfigOwnership(const QString & filePath)
+{
+#ifndef _WIN32
+	// Only relevant when the process is effectively root (e.g. launched with
+	// sudo). getenv("SUDO_UID"/"SUDO_GID") give the invoking user.
+	if(geteuid() == 0)
+	{
+		const char * sudoUid = getenv("SUDO_UID");
+		const char * sudoGid = getenv("SUDO_GID");
+		if(sudoUid && sudoGid)
+		{
+			uid_t uid = (uid_t)atoi(sudoUid);
+			gid_t gid = (gid_t)atoi(sudoGid);
+			// Restore the config file and its containing directory so the user
+			// can still write preferences without sudo afterwards.
+			auto restoreOwnership = [uid, gid](const QString & path)
+			{
+				if(!path.isEmpty() && QFile::exists(path))
+				{
+					if(chown(path.toStdString().c_str(), uid, gid) != 0)
+					{
+						UWARN("Could not restore ownership of \"%s\" to uid=%d (%s).",
+								path.toStdString().c_str(), (int)uid, strerror(errno));
+					}
+				}
+			};
+			restoreOwnership(filePath);
+			restoreOwnership(QFileInfo(filePath).absolutePath());
+		}
+	}
+#else
+	Q_UNUSED(filePath);
+#endif
 }
 
 void PreferencesDialog::loadConfigFrom()
@@ -2878,6 +3021,7 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	_ui->comboBox_cameraImages_bayerMode->setCurrentIndex(settings.value("bayerMode",_ui->comboBox_cameraImages_bayerMode->currentIndex()).toInt());
 
 	_ui->checkBox_cameraImages_configForEachFrame->setChecked(settings.value("config_each_frame",_ui->checkBox_cameraImages_configForEachFrame->isChecked()).toBool());
+	_ui->checkBox_cameraImages_multiCameraCalibration->setChecked(settings.value("multi_camera_calibration",_ui->checkBox_cameraImages_multiCameraCalibration->isChecked()).toBool());
 	_ui->checkBox_cameraImages_timestamps->setChecked(settings.value("filenames_as_stamps",_ui->checkBox_cameraImages_timestamps->isChecked()).toBool());
 	_ui->checkBox_cameraImages_syncTimeStamps->setChecked(settings.value("sync_stamps",_ui->checkBox_cameraImages_syncTimeStamps->isChecked()).toBool());
 	_ui->lineEdit_cameraImages_timestamps->setText(settings.value("stamps", _ui->lineEdit_cameraImages_timestamps->text()).toString());
@@ -2888,6 +3032,7 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	_ui->comboBox_cameraImages_odomFormat->setCurrentIndex(settings.value("odom_format", _ui->comboBox_cameraImages_odomFormat->currentIndex()).toInt());
 	_ui->lineEdit_cameraImages_gt->setText(settings.value("gt_path", _ui->lineEdit_cameraImages_gt->text()).toString());
 	_ui->comboBox_cameraImages_gtFormat->setCurrentIndex(settings.value("gt_format", _ui->comboBox_cameraImages_gtFormat->currentIndex()).toInt());
+	_ui->lineEdit_cameraImages_gt_transform->setText(settings.value("gt_transform", _ui->lineEdit_cameraImages_gt_transform->text()).toString());
 	_ui->doubleSpinBox_maxPoseTimeDiff->setValue(settings.value("max_pose_time_diff", _ui->doubleSpinBox_maxPoseTimeDiff->value()).toDouble());
 
 	_ui->lineEdit_cameraImages_path_imu->setText(settings.value("imu_path", _ui->lineEdit_cameraImages_path_imu->text()).toString());
@@ -2959,6 +3104,7 @@ void PreferencesDialog::readCameraSettings(const QString & filePath)
 	_ui->source_checkBox_ignoreFeatures->setChecked(settings.value("ignoreFeatures", _ui->source_checkBox_ignoreFeatures->isChecked()).toBool());
 	_ui->source_checkBox_ignorePriors->setChecked(settings.value("ignorePriors", _ui->source_checkBox_ignorePriors->isChecked()).toBool());
 	_ui->source_checkBox_ignoreIMU->setChecked(settings.value("ignoreImu", _ui->source_checkBox_ignoreIMU->isChecked()).toBool());
+	_ui->source_checkBox_intermediateNodesAreNormalNodes->setChecked(settings.value("intermediateNodesAreNormalNodes", _ui->source_checkBox_intermediateNodesAreNormalNodes->isChecked()).toBool());
 	
 	_ui->source_spinBox_databaseStartId->setValue(settings.value("startId", _ui->source_spinBox_databaseStartId->value()).toInt());
 	_ui->source_spinBox_databaseStopId->setValue(settings.value("stopId", _ui->source_spinBox_databaseStopId->value()).toInt());
@@ -3191,6 +3337,9 @@ void PreferencesDialog::writeSettings(const QString & filePath)
 	uInsert(_parameters, _modifiedParameters); // update cached parameters
 	_modifiedParameters.clear();
 	_obsoletePanels = kPanelDummy;
+
+	// Keep the ini writable by the invoking user even if we are running as root.
+	restoreConfigOwnership(filePath.isEmpty() ? getIniFilePath() : filePath);
 }
 
 void PreferencesDialog::writeGuiSettings(const QString & filePath) const
@@ -3498,6 +3647,7 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.setValue("maxFrames", 		_ui->source_images_spinBox_maxFrames->value());
 	settings.setValue("bayerMode", 	    _ui->comboBox_cameraImages_bayerMode->currentIndex());
 	settings.setValue("config_each_frame", _ui->checkBox_cameraImages_configForEachFrame->isChecked());
+	settings.setValue("multi_camera_calibration", _ui->checkBox_cameraImages_multiCameraCalibration->isChecked());
 	settings.setValue("filenames_as_stamps", _ui->checkBox_cameraImages_timestamps->isChecked());
 	settings.setValue("sync_stamps",    _ui->checkBox_cameraImages_syncTimeStamps->isChecked());
 	settings.setValue("stamps",              _ui->lineEdit_cameraImages_timestamps->text());
@@ -3508,6 +3658,7 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.setValue("odom_format",         _ui->comboBox_cameraImages_odomFormat->currentIndex());
 	settings.setValue("gt_path",             _ui->lineEdit_cameraImages_gt->text());
 	settings.setValue("gt_format",           _ui->comboBox_cameraImages_gtFormat->currentIndex());
+	settings.setValue("gt_transform",        _ui->lineEdit_cameraImages_gt_transform->text());
 	settings.setValue("max_pose_time_diff",  _ui->doubleSpinBox_maxPoseTimeDiff->value());
 	settings.setValue("imu_path",            _ui->lineEdit_cameraImages_path_imu->text());
 	settings.setValue("imu_local_transform", _ui->lineEdit_cameraImages_imu_transform->text());
@@ -3578,6 +3729,7 @@ void PreferencesDialog::writeCameraSettings(const QString & filePath) const
 	settings.setValue("ignoreFeatures",  _ui->source_checkBox_ignoreFeatures->isChecked());
 	settings.setValue("ignorePriors",  _ui->source_checkBox_ignorePriors->isChecked());
 	settings.setValue("ignoreImu",  _ui->source_checkBox_ignoreIMU->isChecked());
+	settings.setValue("intermediateNodesAreNormalNodes", _ui->source_checkBox_intermediateNodesAreNormalNodes->isChecked());
 	settings.setValue("startId",          _ui->source_spinBox_databaseStartId->value());
 	settings.setValue("stopId",          _ui->source_spinBox_databaseStopId->value());
 	settings.setValue("cameraIndices",       _ui->source_lineEdit_databaseCameraIndex->text());
@@ -3901,15 +4053,36 @@ bool PreferencesDialog::validateForm()
 		_ui->checkbox_odomDisabled->setChecked(false);
 	}
 
-#if CV_MAJOR_VERSION < 3 || (CV_MAJOR_VERSION == 3 && (CV_MINOR_VERSION <4 || (CV_MINOR_VERSION ==4 && CV_SUBMINOR_VERSION<2)))
-	if(_ui->ArucoDictionary->currentIndex()>=17)
-	{
-		QMessageBox::warning(this, tr("Parameter warning"),
-				tr("ArUco dictionary: cannot select AprilTag dictionary, OpenCV version should be at least 3.4.2. Setting back to 0."));
-		_ui->ArucoDictionary->setCurrentIndex(0);
-	}
-#endif
 
+	if(_ui->MarkerStrategy->currentIndex() == 0)
+	{
+#if CV_MAJOR_VERSION < 3 || (CV_MAJOR_VERSION == 3 && (CV_MINOR_VERSION <4 || (CV_MINOR_VERSION ==4 && CV_SUBMINOR_VERSION<2)))
+		if(_ui->MarkerDictionary->currentIndex()>=17)
+		{
+			QMessageBox::warning(this, tr("Parameter warning"),
+					tr("opencv-aruco: cannot use the selected dictionary (%1), OpenCV version should be at least 3.4.2. Setting back to 0.").arg(_ui->MarkerDictionary->currentIndex()));
+			_ui->MarkerDictionary->setCurrentIndex(0);
+		}
+#elif CV_MAJOR_VERSION < 4 || (CV_MAJOR_VERSION == 4 && CV_MINOR_VERSION <8)
+		if(_ui->MarkerDictionary->currentIndex()>=21)
+		{
+			QMessageBox::warning(this, tr("Parameter warning"),
+					tr("Opencv Strategy: cannot use selected dictionary (%1), OpenCV version should be at least 4.8.0. Setting back to 0.").arg(_ui->MarkerDictionary->currentIndex()));
+			_ui->MarkerDictionary->setCurrentIndex(0);
+		}
+#endif
+	}
+	else if(_ui->MarkerStrategy->currentIndex() == 1)
+	{
+#ifndef RTABMAP_APRILTAG_WITH_ARUCO
+		if(_ui->MarkerDictionary->currentIndex() < 17 || _ui->MarkerDictionary->currentIndex() == 21)
+		{
+			QMessageBox::warning(this, tr("Parameter warning"),
+					tr("AprilTag Strategy: cannot use selected dictionary (%1), AprilTag should be built with aruco support. Setting back to 17.").arg(_ui->MarkerDictionary->currentIndex()));
+			_ui->MarkerDictionary->setCurrentIndex(17);
+		}
+#endif
+	}
 	return true;
 }
 
@@ -4551,7 +4724,12 @@ void PreferencesDialog::selectCalibrationPath()
 	{
 		dir = getWorkingDirectory()+"/camera_info/"+dir;
 	}
-	QString path = QFileDialog::getOpenFileName(this, tr("Select file"), dir, tr("Calibration file (*.yaml)"));
+#if CV_MAJOR_VERSION < 3 || (CV_MAJOR_VERSION == 3 && CV_MAJOR_VERSION < 2)
+	QString path = QFileDialog::getOpenFileName(this, tr("Select file"), dir, tr("Calibration file (*.yaml *.xml)"));
+#else
+	QString path = QFileDialog::getOpenFileName(this, tr("Select file"), dir, tr("Calibration file (*.yaml *.xml *.json)"));
+#endif
+	
 	if(path.size())
 	{
 		_ui->lineEdit_calibrationFile->setText(path);
@@ -5425,7 +5603,11 @@ void PreferencesDialog::updatePredictionPlot()
 	QVector<qreal> dataX((values.size()-2)*2 + 1);
 	QVector<qreal> dataY((values.size()-2)*2 + 1);
 	double value;
-	double sum = 0;
+	// Summed as PredictionModel does it, into a float: that is the sum the filter decides on,
+	// and under 1 of it is what has normalize() spread the difference over every other
+	// location. A double would land a few 1e-8 from a float on a list like the default one,
+	// and say 1 where the filter says otherwise.
+	float sum = 0.0f;
 	int lvl = 1;
 	bool ok = false;
 	bool error = false;
@@ -5463,7 +5645,7 @@ void PreferencesDialog::updatePredictionPlot()
 	{
 		_ui->label_prediction_sum->setText(QString("<font color=#FF0000>") + _ui->label_prediction_sum->text() + "</font>");
 	}
-	else if(sum == 1.0)
+	else if(sum == 1.0f)
 	{
 		_ui->label_prediction_sum->setText(QString("<font color=#00FF00>") + _ui->label_prediction_sum->text() + "</font>");
 	}
@@ -5536,6 +5718,64 @@ void PreferencesDialog::updateGlobalDescriptorVisibility()
 	_ui->groupBox_pydescriptor->setVisible(_ui->comboBox_globalDescriptorExtractor->currentIndex() == 1);
 }
 
+void PreferencesDialog::updateAvailableMarkerDictionaries()
+{
+	Qt::ItemFlags enableFlags = Qt::ItemFlags(Qt::ItemIsEnabled) | Qt::ItemIsSelectable;
+	for(int i=0;i<_ui->MarkerDictionary->count();++i) {
+		_ui->MarkerDictionary->setItemData(i, QVariant(static_cast<int>(enableFlags)), Qt::UserRole - 1); 
+	}
+
+	if(_ui->MarkerStrategy->currentIndex() == 1) // AprilTag Strategy is selected
+	{
+		// ARUCO_ORIGINAL not available with AprilTag lib
+		_ui->MarkerDictionary->setItemData(16, 0, Qt::UserRole - 1);
+#ifndef RTABMAP_APRILTAG_WITH_ARUCO
+		// disable all aruco dictionaries
+		for(int i=0;i<17;++i) {
+			_ui->MarkerDictionary->setItemData(i, 0, Qt::UserRole - 1); 
+		}
+		_ui->MarkerDictionary->setItemData(21, 0, Qt::UserRole - 1);
+		if(_ui->MarkerDictionary->currentIndex() < 17 || _ui->MarkerDictionary->currentIndex() > 20)
+		{
+			_ui->MarkerDictionary->setCurrentIndex(20); // 36h11 by default
+		}
+#endif
+	}
+	else //if(_ui->MarkerStrategy->currentIndex() == 0) // OpenCV Strategy is selected
+	{
+		//if OpenCV < 3.4.2
+#if CV_MAJOR_VERSION < 3 || (CV_MAJOR_VERSION == 3 && (CV_MINOR_VERSION <4 || (CV_MINOR_VERSION ==4 && CV_SUBMINOR_VERSION<2)))
+		// disable all apriltag dictionaries
+		for(int i=17;i<21;++i) {
+			_ui->MarkerDictionary->setItemData(i, 0, Qt::UserRole - 1); 
+		}
+		if(_ui->MarkerDictionary->currentIndex() >=17 && _ui->MarkerDictionary->currentIndex() <= 20)
+		{
+			_ui->MarkerDictionary->setCurrentIndex(Parameters::defaultMarkerDictionary());
+		}
+#else
+		if(_ui->MarkerDictionary->currentIndex() >=17 && _ui->MarkerDictionary->currentIndex() <= 20)
+		{
+			// If apriltag is selected, select apriltag refinement by default
+			_ui->OpenCVCornerRefinementMethod->setCurrentIndex(3);
+		}
+		else if(_ui->OpenCVCornerRefinementMethod->currentIndex() == 3)
+		{
+			// If not apriltag dictionary selected, reset refinement to default.
+			_ui->OpenCVCornerRefinementMethod->setCurrentIndex(Parameters::defaultMarkerOpenCVCornerRefinementMethod());
+		}
+#endif
+#if CV_MAJOR_VERSION < 4 || (CV_MAJOR_VERSION == 4 && CV_MINOR_VERSION <8)
+		// disable aruco MPI dictionary	
+		_ui->MarkerDictionary->setItemData(21, 0, Qt::UserRole - 1);
+		if(_ui->MarkerDictionary->currentIndex() == 21)
+		{
+			_ui->MarkerDictionary->setCurrentIndex(Parameters::defaultMarkerDictionary());
+		}
+#endif
+	}
+}
+
 void PreferencesDialog::updateOdometryStackedIndex(int index)
 {
 	if(index == 11) // FLOAM -> LOAM
@@ -5559,6 +5799,7 @@ void PreferencesDialog::updateOdometryStackedIndex(int index)
 	_ui->groupBox_odomOpenVINS->setVisible(index==10);
 	_ui->groupBox_odomOpen3D->setVisible(index==12);
 	_ui->groupBox_odomCuvslam->setVisible(index==13);
+	_ui->groupBox_odomLIOSAM->setVisible(index==14);
 }
 
 void PreferencesDialog::useOdomFeatures()
@@ -5661,6 +5902,40 @@ void PreferencesDialog::changeOdometryVINSFusionConfigPath()
 	if(!path.isEmpty())
 	{
 		_ui->lineEdit_OdomVinsFusionPath->setText(path);
+	}
+}
+
+void PreferencesDialog::changeOdometryOpenVINSConfigPath()
+{
+	QString path;
+	if(_ui->lineEdit_openvinsConfigPath->text().isEmpty())
+	{
+		path = QFileDialog::getOpenFileName(this, tr("OpenVINS Config"), this->getWorkingDirectory(), tr("OpenVINS config (*.yaml)"));
+	}
+	else
+	{
+		path = QFileDialog::getOpenFileName(this, tr("OpenVINS Config"), _ui->lineEdit_openvinsConfigPath->text(), tr("OpenVINS config (*.yaml)"));
+	}
+	if(!path.isEmpty())
+	{
+		_ui->lineEdit_openvinsConfigPath->setText(path);
+	}
+}
+
+void PreferencesDialog::changeOdometryLIOSAMConfigPath()
+{
+	QString path;
+	if(_ui->lineEdit_OdomLIOSAMPath->text().isEmpty())
+	{
+		path = QFileDialog::getOpenFileName(this, tr("LIO-SAM Config"), this->getWorkingDirectory(), tr("LIO-SAM config (*.yaml)"));
+	}
+	else
+	{
+		path = QFileDialog::getOpenFileName(this, tr("LIO-SAM Config"), _ui->lineEdit_OdomLIOSAMPath->text(), tr("LIO-SAM config (*.yaml)"));
+	}
+	if(!path.isEmpty())
+	{
+		_ui->lineEdit_OdomLIOSAMPath->setText(path);
 	}
 }
 
@@ -6182,7 +6457,7 @@ bool PreferencesDialog::isMarkerDetection() const
 }
 double PreferencesDialog::getMarkerLength() const
 {
-	return _ui->ArucoMarkerLength->value();
+	return _ui->MarkerLength->value();
 }
 bool PreferencesDialog::isCloudMeshing() const
 {
@@ -6462,6 +6737,16 @@ QString PreferencesDialog::getSourceDriverStr() const
 	return "";
 }
 
+QString PreferencesDialog::getSourceInitWarningMsg() const
+{
+	if(getSourceDriver() == kSrcStereoZed)
+	{
+		return QString::fromStdString(
+			CameraStereoZed::getNeuralModelWarning(_ui->comboBox_stereoZed_quality->currentIndex()));
+	}
+	return QString();
+}
+
 QString PreferencesDialog::getSourceDevice() const
 {
 	return _ui->lineEdit_sourceDevice->text();
@@ -6513,6 +6798,15 @@ Transform PreferencesDialog::getSourceLocalTransform() const
 Transform PreferencesDialog::getLaserLocalTransform() const
 {
 	Transform t = Transform::fromString(_ui->lineEdit_cameraImages_laser_transform->text().replace("PI_2", QString::number(3.141592/2.0)).toStdString());
+	if(t.isNull())
+	{
+		return Transform::getIdentity();
+	}
+	return t;
+}
+Transform PreferencesDialog::getGroundTruthLocalTransform() const
+{
+	Transform t = Transform::fromString(_ui->lineEdit_cameraImages_gt_transform->text().replace("PI_2", QString::number(3.141592/2.0)).toStdString());
 	if(t.isNull())
 	{
 		return Transform::getIdentity();
@@ -6638,11 +6932,11 @@ double PreferencesDialog::getSourceScanForceGroundNormalsUp() const
 Camera * PreferencesDialog::createCamera(bool useRawImages, bool useColor)
 {
 	return createCamera(
-		this->getSourceDriver(), 
-		_ui->lineEdit_sourceDevice->text(), 
-		_ui->lineEdit_calibrationFile->text(), 
-		useRawImages, 
-		useColor, 
+		this->getSourceDriver(),
+		_ui->lineEdit_sourceDevice->text(),
+		_ui->lineEdit_calibrationFile->text(),
+		useRawImages,
+		useColor,
 		false,
 		false);
 }
@@ -6885,7 +7179,7 @@ Camera * PreferencesDialog::createCamera(
 		((CameraRGBDImages*)camera)->setMaxFrames(_ui->spinBox_cameraRGBDImages_maxFrames->value());
 		((CameraRGBDImages*)camera)->setBayerMode(_ui->comboBox_cameraImages_bayerMode->currentIndex()-1);
 		((CameraRGBDImages*)camera)->setOdometryPath(_ui->lineEdit_cameraImages_odom->text().toStdString(), _ui->comboBox_cameraImages_odomFormat->currentIndex());
-		((CameraRGBDImages*)camera)->setGroundTruthPath(_ui->lineEdit_cameraImages_gt->text().toStdString(), _ui->comboBox_cameraImages_gtFormat->currentIndex());
+		((CameraRGBDImages*)camera)->setGroundTruthPath(_ui->lineEdit_cameraImages_gt->text().toStdString(), _ui->comboBox_cameraImages_gtFormat->currentIndex(), this->getGroundTruthLocalTransform());
 		((CameraRGBDImages*)camera)->setMaxPoseTimeDiff(_ui->doubleSpinBox_maxPoseTimeDiff->value());
 		((CameraRGBDImages*)camera)->setScanPath(
 						_ui->lineEdit_cameraImages_path_scans->text().isEmpty()?"":_ui->lineEdit_cameraImages_path_scans->text().append(QDir::separator()).toStdString(),
@@ -6896,6 +7190,7 @@ Camera * PreferencesDialog::createCamera(
 				_ui->lineEdit_cameraImages_timestamps->text().toStdString(),
 				_ui->checkBox_cameraImages_syncTimeStamps->isChecked());
 		((CameraRGBDImages*)camera)->setConfigForEachFrame(_ui->checkBox_cameraImages_configForEachFrame->isChecked());
+		((CameraRGBDImages*)camera)->setMultiCameraCalibration(_ui->checkBox_cameraImages_multiCameraCalibration->isChecked());
 	}
 	else if(driver == kSrcDC1394)
 	{
@@ -6931,7 +7226,7 @@ Camera * PreferencesDialog::createCamera(
 		((CameraStereoImages*)camera)->setMaxFrames(_ui->spinBox_cameraStereoImages_maxFrames->value());
 		((CameraStereoImages*)camera)->setBayerMode(_ui->comboBox_cameraImages_bayerMode->currentIndex()-1);
 		((CameraStereoImages*)camera)->setOdometryPath(_ui->lineEdit_cameraImages_odom->text().toStdString(), _ui->comboBox_cameraImages_odomFormat->currentIndex());
-		((CameraStereoImages*)camera)->setGroundTruthPath(_ui->lineEdit_cameraImages_gt->text().toStdString(), _ui->comboBox_cameraImages_gtFormat->currentIndex());
+		((CameraStereoImages*)camera)->setGroundTruthPath(_ui->lineEdit_cameraImages_gt->text().toStdString(), _ui->comboBox_cameraImages_gtFormat->currentIndex(), this->getGroundTruthLocalTransform());
 		((CameraStereoImages*)camera)->setMaxPoseTimeDiff(_ui->doubleSpinBox_maxPoseTimeDiff->value());
 		((CameraStereoImages*)camera)->setScanPath(
 						_ui->lineEdit_cameraImages_path_scans->text().isEmpty()?"":_ui->lineEdit_cameraImages_path_scans->text().append(QDir::separator()).toStdString(),
@@ -6942,6 +7237,7 @@ Camera * PreferencesDialog::createCamera(
 				_ui->lineEdit_cameraImages_timestamps->text().toStdString(),
 				_ui->checkBox_cameraImages_syncTimeStamps->isChecked());
 		((CameraStereoImages*)camera)->setConfigForEachFrame(_ui->checkBox_cameraImages_configForEachFrame->isChecked());
+		((CameraStereoImages*)camera)->setMultiCameraCalibration(_ui->checkBox_cameraImages_multiCameraCalibration->isChecked());
 		((CameraStereoImages*)camera)->setRightGrayScale(_ui->checkBox_stereo_rightGrayScale->isChecked());
 	}
 	else if (driver == kSrcStereoUsb)
@@ -7131,7 +7427,8 @@ Camera * PreferencesDialog::createCamera(
 				_ui->comboBox_cameraImages_odomFormat->currentIndex());
 		((CameraImages*)camera)->setGroundTruthPath(
 				_ui->lineEdit_cameraImages_gt->text().toStdString(),
-				_ui->comboBox_cameraImages_gtFormat->currentIndex());
+				_ui->comboBox_cameraImages_gtFormat->currentIndex(),
+				this->getGroundTruthLocalTransform());
 		((CameraImages*)camera)->setMaxPoseTimeDiff(_ui->doubleSpinBox_maxPoseTimeDiff->value());
 		((CameraImages*)camera)->setScanPath(
 						_ui->lineEdit_cameraImages_path_scans->text().isEmpty()?"":_ui->lineEdit_cameraImages_path_scans->text().append(QDir::separator()).toStdString(),
@@ -7145,7 +7442,8 @@ Camera * PreferencesDialog::createCamera(
 				_ui->checkBox_cameraImages_timestamps->isChecked(),
 				_ui->lineEdit_cameraImages_timestamps->text().toStdString(),
 				_ui->checkBox_cameraImages_syncTimeStamps->isChecked());
-		((CameraRGBDImages*)camera)->setConfigForEachFrame(_ui->checkBox_cameraImages_configForEachFrame->isChecked());
+		((CameraImages*)camera)->setConfigForEachFrame(_ui->checkBox_cameraImages_configForEachFrame->isChecked());
+		((CameraImages*)camera)->setMultiCameraCalibration(_ui->checkBox_cameraImages_multiCameraCalibration->isChecked());
 	}
 	else if(driver == kSrcDatabase)
 	{
@@ -7242,13 +7540,14 @@ Camera * PreferencesDialog::createCamera(
 				_ui->source_spinBox_databaseStartId->value(),
 				cameraIndices,
 				_ui->source_spinBox_databaseStopId->value(),
-				!_ui->general_checkBox_createIntermediateNodes->isChecked(),
+				!_ui->source_checkBox_intermediateNodesAreNormalNodes->isChecked() && !_ui->general_checkBox_createIntermediateNodes->isChecked(),
 				_ui->source_checkBox_ignoreLandmarks->isChecked(),
 				_ui->source_checkBox_ignoreFeatures->isChecked(),
 				0,
 				-1,
 				_ui->source_checkBox_ignorePriors->isChecked(),
 				_ui->source_checkBox_ignoreIMU->isChecked(),
+				_ui->source_checkBox_intermediateNodesAreNormalNodes->isChecked(),
 				localTransformOverrides);
 	}
 	else
@@ -7541,7 +7840,28 @@ void PreferencesDialog::setSLAMMode(bool enabled)
 
 void PreferencesDialog::testOdometry()
 {
+	QString startLabel = tr("Starting camera...");
+	QString initWarn = getSourceInitWarningMsg();
+	if(!initWarn.isEmpty())
+	{
+		startLabel += "\n\n" + initWarn;
+	}
+	QProgressDialog progress(startLabel, QString(), 0, 0, this);
+	if(!initWarn.isEmpty())
+	{
+		QLabel * wrapLabel = new QLabel(startLabel);
+		wrapLabel->setWordWrap(true);
+		progress.setLabel(wrapLabel); // QProgressDialog takes ownership
+		progress.setMinimumWidth(450);
+	}
+	progress.setWindowModality(Qt::ApplicationModal);
+	progress.setCancelButton(0);
+	progress.setMinimumDuration(0);
+	progress.setValue(0);
+	showAndWaitExposed(&progress);
+
 	Camera * camera = this->createCamera();
+	progress.hide();
 	if(!camera)
 	{
 		return;
@@ -7589,12 +7909,13 @@ void PreferencesDialog::testOdometry()
 			_ui->odom_dataBufferSize->value());
 	odomThread.registerToEventsManager();
 
+	// parent = 0 (not 'this'): see testCamera() - avoids the nested-modality crash.
 	OdometryViewer * odomViewer = new OdometryViewer(10,
 					_ui->spinBox_decimation_odom->value(),
 					0.0f,
 					_ui->doubleSpinBox_maxDepth_odom->value(),
 					this->getOdomQualityWarnThr(),
-					this,
+					0,
 					this->getAllParameters());
 	odomViewer->setWindowTitle(tr("Odometry viewer"));
 	odomViewer->resize(1280, 480+QPushButton().minimumHeight());
@@ -7656,25 +7977,75 @@ void PreferencesDialog::testOdometry()
 	}
 
 	odomViewer->exec();
-	delete odomViewer;
+	UDEBUG("Dialog closed, stopping sensor...");
+
+	// Tear down the pipes first so no more events are routed to the threads/viewer being
+	// destroyed, then stop the threads, then delete the viewer. This avoids delivering
+	// events to a handler that is being torn down.
+	UEventsManager::removePipe(&cameraThread, &odomThread, "SensorEvent");
+	if(imuThread)
+	{
+		UEventsManager::removePipe(imuThread, &odomThread, "IMUEvent");
+	}
+	UEventsManager::removePipe(&odomThread, odomViewer, "OdometryEvent");
+	UEventsManager::removePipe(odomViewer, &odomThread, "OdometryResetEvent");
 
 	if(imuThread)
 	{
 		imuThread->join(true);
-		delete imuThread;
 	}
+
+	// Reuse the same dialog for the close. The device close() runs in cameraThread's destructor
+	// at function scope end (not in join()), so 'progress' stays visible across it. On Windows
+	// the first 2-3 RealSense closes per launch stall ~20s in the Motion Module stop().
+	progress.setLabelText(tr("Closing camera..."));
+	showAndWaitExposed(&progress);
 	cameraThread.join(true);
 	odomThread.join(true);
+
+	// deleteLater() (not delete): see testCamera() - avoids a dangling OpenGL platform
+	// window that crashes in QWindowsWindow::alertWindow when Preferences later closes.
+	odomViewer->deleteLater();
+	if(imuThread)
+	{
+		delete imuThread;
+	}
 }
 
 void PreferencesDialog::testCamera()
 {
-	CameraViewer * window = new CameraViewer(this, this->getAllParameters());
+	// Not parented to 'this': the Preferences dialog is itself application-modal, and making
+	// the viewer a modal *child* of it (nested modality) with an OpenGL/VTK native window
+	// crashes Qt (QWindowsWindow::alertWindow, this==nullptr) when Preferences later closes.
+	// exec() below still makes the viewer application-modal, so interaction stays blocked.
+	CameraViewer * window = new CameraViewer(nullptr, this->getAllParameters());
 	window->setWindowTitle(tr("Camera viewer"));
 	window->resize(1280, 480+QPushButton().minimumHeight());
 	window->registerToEventsManager();
 
+	QString startLabel = tr("Starting camera...");
+	QString initWarn = getSourceInitWarningMsg();
+	if(!initWarn.isEmpty())
+	{
+		startLabel += "\n\n" + initWarn;
+	}
+	QProgressDialog progress(startLabel, QString(), 0, 0, this);
+	if(!initWarn.isEmpty())
+	{
+		QLabel * wrapLabel = new QLabel(startLabel);
+		wrapLabel->setWordWrap(true);
+		progress.setLabel(wrapLabel); // QProgressDialog takes ownership
+		progress.setMinimumWidth(450);
+	}
+	progress.setWindowModality(Qt::ApplicationModal);
+	progress.setCancelButton(0);
+	progress.setMinimumDuration(0);
+	progress.setValue(0);
+	showAndWaitExposed(&progress);
+
+	// createCamera() init()s the device on the GUI thread (required by ZED) and takes a few seconds.
 	Camera * camera = this->createCamera();
+	progress.hide();
 	if(camera)
 	{
 		SensorCaptureThread cameraThread(camera, this->getAllParameters());
@@ -7719,12 +8090,24 @@ void PreferencesDialog::testCamera()
 
 		cameraThread.start();
 		window->exec();
-		delete window;
-		cameraThread.join(true);
+		UDEBUG("Dialog closed, stopping sensor...");
+		UEventsManager::removePipe(&cameraThread, window, "SensorEvent");
+
+		// Reuse the same dialog for the close. The device close() runs in cameraThread's
+		// destructor at scope end (not in join()), so 'progress' - declared in the outer scope -
+		// stays visible across it. On Windows the first 2-3 RealSense closes per launch stall
+		// ~20s in the Motion Module stop() (librealsense warm-up); this keeps the user informed.
+		progress.setLabelText(tr("Closing camera..."));
+		showAndWaitExposed(&progress);
+		cameraThread.join(true); // cameraThread's destructor (scope end) closes the device
+		// deleteLater() (not delete): defer destruction to the event loop so Qt finishes
+		// tearing down the OpenGL widget's context and window-proc subclass and drains
+		// pending activation messages first.
+		window->deleteLater();
 	}
 	else
 	{
-		delete window;
+		window->deleteLater();
 	}
 }
 
@@ -8190,14 +8573,23 @@ void PreferencesDialog::calibrateOdomSensorExtrinsics()
 
 void PreferencesDialog::testLidar()
 {
-	CameraViewer * window = new CameraViewer(this, this->getAllParameters());
+	// Not parented to 'this': see testCamera() - avoids the nested-modality crash.
+	CameraViewer * window = new CameraViewer(nullptr, this->getAllParameters());
 	window->setWindowTitle(tr("Lidar viewer"));
 	window->setWindowFlags(Qt::Window);
 	window->resize(1280, 480+QPushButton().minimumHeight());
 	window->registerToEventsManager();
 	window->setDecimation(1);
 
+	QProgressDialog progress(tr("Starting lidar..."), QString(), 0, 0, this);
+	progress.setWindowModality(Qt::ApplicationModal);
+	progress.setCancelButton(0);
+	progress.setMinimumDuration(0);
+	progress.setValue(0);
+	showAndWaitExposed(&progress);
+
 	Lidar * lidar = this->createLidar();
+	progress.hide();
 	if(lidar)
 	{
 		SensorCaptureThread lidarThread(lidar, this->getAllParameters());
@@ -8216,12 +8608,22 @@ void PreferencesDialog::testLidar()
 
 		lidarThread.start();
 		window->exec();
-		delete window;
-		lidarThread.join(true);
+		UDEBUG("Dialog closed, stopping sensor...");
+		UEventsManager::removePipe(&lidarThread, window, "SensorEvent");
+
+		// Reuse the same dialog for the close. The device close() runs in lidarThread's
+		// destructor at scope end (not in join()), so 'progress' - declared in the outer
+		// scope - stays visible across it.
+		progress.setLabelText(tr("Closing sensor..."));
+		showAndWaitExposed(&progress);
+		lidarThread.join(true); // lidarThread's destructor (scope end) closes the device
+		// deleteLater() (not delete): see testCamera() - avoids a dangling OpenGL platform
+		// window that crashes in QWindowsWindow::alertWindow when Preferences later closes.
+		window->deleteLater();
 	}
 	else
 	{
-		delete window;
+		window->deleteLater();
 	}
 }
 

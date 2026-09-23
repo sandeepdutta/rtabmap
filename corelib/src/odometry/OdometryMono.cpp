@@ -43,7 +43,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/utilite/UStl.h"
 #include "rtabmap/utilite/UMath.h"
 #include <opencv2/imgproc/imgproc.hpp>
+#if CV_MAJOR_VERSION < 5
 #include <opencv2/calib3d/calib3d.hpp>
+#else
+#include <opencv2/geometry.hpp>
+#endif
 #include <opencv2/video/tracking.hpp>
 #include <pcl/common/centroid.h>
 
@@ -239,7 +243,7 @@ Transform OdometryMono::computeTransform(SensorData & data, const Transform & gu
 		{
 			UDEBUG("");
 			bool newPtsAdded = false;
-			const Signature * newS = memory_->getLastWorkingSignature();
+			const Signature * newS = memory_->getLastWorkingSignature(false);
 			UDEBUG("newWords=%d", (int)newS->getWords().size());
 			nFeatures = (int)newS->getWords().size();
 			if((int)newS->getWords().size() > minInliers_)
@@ -472,9 +476,8 @@ Transform OdometryMono::computeTransform(SensorData & data, const Transform & gu
 								}
 							}
 
-							std::set<int> outliers;
 							UWARN("Bundle adjustment begin");
-							poses = ba->optimizeBA(poses.begin()->first, poses, links, models, localMap_, wordReferences, &outliers);
+							poses = ba->optimizeBA(poses.begin()->first, poses, links, models, localMap_, wordReferences);
 							UWARN("Bundle adjustment end");
 							if(!poses.empty())
 							{
@@ -646,7 +649,7 @@ Transform OdometryMono::computeTransform(SensorData & data, const Transform & gu
 			info->type = 1;
 		}
 
-		const Signature * refS = memory_->getLastWorkingSignature();
+		const Signature * refS = memory_->getLastWorkingSignature(false);
 
 		std::vector<cv::Point2f> refCorners(firstFrameGuessCorners_.size());
 		std::vector<cv::Point2f> refCornersGuess(firstFrameGuessCorners_.size());
@@ -804,10 +807,10 @@ Transform OdometryMono::computeTransform(SensorData & data, const Transform & gu
 				if(!refWords3.empty())
 				{
 					UDEBUG("Added %d/%d valid 3D features", (int)refWords3.size(), (int)localMap_.size());
-					keyFrameWords3D_.insert(std::make_pair(memory_->getLastWorkingSignature()->id(), refWords3));
+					keyFrameWords3D_.insert(std::make_pair(memory_->getLastWorkingSignature(false)->id(), refWords3));
 				}
-				keyFramePoses_.insert(std::make_pair(memory_->getLastWorkingSignature()->id(), this->getPose()));
-				keyFrameModels_.insert(std::make_pair(memory_->getLastWorkingSignature()->id(), newModel));
+				keyFramePoses_.insert(std::make_pair(memory_->getLastWorkingSignature(false)->id(), this->getPose()));
+				keyFrameModels_.insert(std::make_pair(memory_->getLastWorkingSignature(false)->id(), newModel));
 			}
 		}
 		else
@@ -829,7 +832,7 @@ Transform OdometryMono::computeTransform(SensorData & data, const Transform & gu
 			// generate kpts
 		if(memory_->update(SensorData(data)))
 		{
-			const Signature * s = memory_->getLastWorkingSignature();
+			const Signature * s = memory_->getLastWorkingSignature(false);
 			const std::multimap<int, int> & words = s->getWords();
 			if((int)words.size() > minInliers_ && !s->getWordsKpts().empty())
 			{

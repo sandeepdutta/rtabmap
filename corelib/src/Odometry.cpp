@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "rtabmap/core/odometry/OdometryORBSLAM3.h"
 #include "rtabmap/core/odometry/OdometryLOAM.h"
 #include "rtabmap/core/odometry/OdometryFLOAM.h"
+#include "rtabmap/core/odometry/OdometryLIOSAM.h"
 #include "rtabmap/core/odometry/OdometryMSCKF.h"
 #include "rtabmap/core/odometry/OdometryVINSFusion.h"
 #include "rtabmap/core/odometry/OdometryOpenVINS.h"
@@ -100,6 +101,9 @@ Odometry * Odometry::create(Odometry::Type & type, const ParametersMap & paramet
 		break;
 	case Odometry::kTypeFLOAM:
 		odometry = new OdometryFLOAM(parameters);
+		break;
+	case Odometry::kTypeLIOSAM:
+		odometry = new OdometryLIOSAM(parameters);
 		break;
 	case Odometry::kTypeMSCKF:
 		odometry = new OdometryMSCKF(parameters);
@@ -653,7 +657,7 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			UWARN("Could not find imu transform at %f", data.stamp());
 		}
 	}
-	else if(!guess.isNull()) {
+	else if(!guess.isNull() && (!data.imageRaw().empty() || !data.laserScanRaw().isEmpty())) {
 		UDEBUG("Using guess from motion %s", guess.prettyPrint().c_str());
 	}
 
@@ -775,6 +779,26 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 		}
 
 
+		// Features that came with the frame are placed in the full size image, while what
+		// is about to be registered is the decimated one and the calibration that goes
+		// with it, so bring them along. They are scaled back below with whatever the
+		// registration returns, leaving the caller its own frame of reference.
+		if(!decimatedData.keypoints().empty())
+		{
+			std::vector<cv::KeyPoint> decimatedKpts = decimatedData.keypoints();
+			double log2value = log(double(_imageDecimation))/log(2.0);
+			for(unsigned int i=0; i<decimatedKpts.size(); ++i)
+			{
+				decimatedKpts[i].pt.x /= _imageDecimation;
+				decimatedKpts[i].pt.y /= _imageDecimation;
+				decimatedKpts[i].size /= _imageDecimation;
+				// Never below the finest level of the decimated image, which is as fine
+				// as its detail goes; ORB refuses a negative octave outright.
+				decimatedKpts[i].octave = std::max(0, int(decimatedKpts[i].octave - log2value));
+			}
+			decimatedData.setFeatures(decimatedKpts, decimatedData.keypoints3D(), decimatedData.descriptors());
+		}
+
 		// compute transform
 		t = this->computeTransform(decimatedData, guess, info);
 
@@ -813,7 +837,14 @@ Transform Odometry::process(SensorData & data, const Transform & guessIn, Odomet
 			}
 		}
 	}
-	else if(!data.imageRaw().empty() || !data.laserScanRaw().isEmpty() || (this->canProcessAsyncIMU() && !data.imu().empty()))
+	// A frame that brings its own features carries no image, and a frame whose scene was
+	// empty carries no feature either, so neither says whether there is a frame at all.
+	// The calibration does: it is there when a camera produced this data.
+	else if(!data.imageRaw().empty() ||
+			!data.cameraModels().empty() ||
+			!data.stereoCameraModels().empty() ||
+			!data.laserScanRaw().isEmpty() ||
+			(this->canProcessAsyncIMU() && !data.imu().empty()))
 	{
 		t = this->computeTransform(data, guess, info);
 	}

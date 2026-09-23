@@ -63,14 +63,7 @@ void showUsage()
 	exit(1);
 }
 
-// catch ctrl-c
 bool g_loopForever = true;
-void sighandler(int sig)
-{
-	printf("\nSignal %d caught...\n", sig);
-	g_loopForever = false;
-}
-
 class PrintProgressState : public ProgressState
 {
 public:
@@ -86,6 +79,15 @@ public:
 private:
 	double stamp_;
 };
+PrintProgressState progress;
+
+// catch ctrl-c
+void sighandler(int sig)
+{
+	printf("\nSignal %d caught...\n", sig);
+	g_loopForever = false;
+	progress.setCanceled(true);
+}
 
 int main(int argc, char * argv[])
 {
@@ -94,7 +96,7 @@ int main(int argc, char * argv[])
 	signal(SIGINT, &sighandler);
 
 	ULogger::setType(ULogger::kTypeConsole);
-	ULogger::setLevel(ULogger::kError);
+	ULogger::setLevel(ULogger::kWarning);
 
 	if(argc < 2)
 	{
@@ -195,7 +197,7 @@ int main(int argc, char * argv[])
 
 	// Add some optimizations (soft set, can be overriden by arguments)
 	inputParams.insert(ParametersPair(Parameters::kMemLoadVisualLocalFeaturesOnInit(), "false")); // don't need features already loaded in RAM
-	inputParams.insert(ParametersPair(Parameters::kKpNNStrategy(), "3")); // don't need flann index
+	inputParams.insert(ParametersPair(Parameters::kMemIncrementalMemory(), "true")); // should be incremental to update links
 
 	std::string dbPath = argv[argc-1];
 	if(!UFile::exists(dbPath))
@@ -245,10 +247,17 @@ int main(int argc, char * argv[])
 	Rtabmap rtabmap;
 	printf("Initialization...\n");
 	UTimer timer;
+	ParametersMap originalParameters = parameters;
 	uInsert(parameters, inputParams);
+
+	// This avoids to load original descriptors in the dictionary
+	// to save RAM and intialization time (we don't need the dictionary for this tool)
+	rtabmap.setDummyDictionary(true); // should be set before Rtabmap::init()
+	
 	rtabmap.init(parameters, dbPath);
 	printf("Initialization... done! (%f sec)\n", timer.ticks());
 
+	// detectMoreLoopClosures would clear the optimized map if loop closures are detected
 	float xMin, yMin, cellSize;
 	bool haveOptimizedMap = !rtabmap.getMemory()->load2DMap(xMin, yMin, cellSize).empty();
 
@@ -267,7 +276,6 @@ int main(int argc, char * argv[])
 		printf("From/To Session ID = %d%s\n", fromToMapId, last?" (last session)":"");
 	}
 
-	PrintProgressState progress;
 	printf("Detecting...\n");
 	int detected = rtabmap.detectMoreLoopClosures(clusterRadiusMax, clusterAngle, iterations, intraSession, interSession, &progress, clusterRadiusMin, fromToMapId);
 	if(detected < 0)
@@ -306,7 +314,12 @@ int main(int argc, char * argv[])
 		}
 	}
 
-	rtabmap.close();
+	// Restore original parameters before saving back the database
+	rtabmap.parseParameters(originalParameters);
 
-	return 0;
+	rtabmap.close(detected>0);
+
+	// Only a negative count is a failure (detection failed or was interrupted).
+	// Finding zero new loop closures is a valid outcome, so exit 0.
+	return detected<0?1:0;
 }
